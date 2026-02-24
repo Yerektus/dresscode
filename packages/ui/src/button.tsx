@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   Text,
   StyleSheet,
@@ -7,6 +8,7 @@ import {
   ViewStyle,
   TextStyle,
   Platform,
+  View,
 } from 'react-native';
 import { uiColors } from './colors';
 
@@ -16,6 +18,8 @@ interface ButtonProps {
   variant?: 'primary' | 'secondary';
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
+  loading?: boolean;
+  disabled?: boolean;
 }
 
 const webHoverTransition = Platform.select({
@@ -26,27 +30,46 @@ const webHoverTransition = Platform.select({
   } as unknown as ViewStyle,
 });
 
-export function Button({ children, onPress, variant = 'primary', style, textStyle }: ButtonProps) {
+export function Button({
+  children,
+  onPress,
+  variant = 'primary',
+  style,
+  textStyle,
+  loading = false,
+  disabled = false,
+}: ButtonProps) {
   const [isHovered, setIsHovered] = useState(false);
   const isSecondary = variant === 'secondary';
+  const isDisabled = disabled || loading;
+  const spinnerColor = uiColors.textOnDark;
 
   return (
     <Pressable
       onPress={onPress}
-      onHoverIn={() => setIsHovered(true)}
+      disabled={isDisabled}
+      onHoverIn={() => {
+        if (!isDisabled) {
+          setIsHovered(true);
+        }
+      }}
       onHoverOut={() => setIsHovered(false)}
       style={[
         styles.base,
         webHoverTransition,
         isSecondary ? styles.secondary : styles.primary,
-        isHovered && (isSecondary ? styles.secondaryHover : styles.primaryHover),
-        isHovered && styles.hoverScale,
+        !isDisabled && isHovered && (isSecondary ? styles.secondaryHover : styles.primaryHover),
+        !isDisabled && isHovered && styles.hoverScale,
+        isDisabled && styles.disabled,
         style,
       ]}
     >
-      <Text style={[styles.text, isSecondary && styles.textSecondary, textStyle]}>
-        {children}
-      </Text>
+      <View style={styles.content}>
+        {loading ? <ActivityIndicator size={16} color={spinnerColor} style={styles.spinner} /> : null}
+        <Text style={[styles.text, isSecondary && styles.textSecondary, textStyle]}>
+          {children}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -75,6 +98,16 @@ const styles = StyleSheet.create({
   },
   hoverScale: {
     transform: [{ scale: 1.005 }],
+  },
+  disabled: {
+    opacity: 0.75,
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  spinner: {
+    marginRight: 8,
   },
   text: {
     fontSize: 15,

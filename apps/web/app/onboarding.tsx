@@ -164,12 +164,12 @@ export default function OnboardingScreen() {
         <View style={styles.pickerField} />
       </View>
 
-      <Button style={styles.cta} onPress={handleContinue}>
+      <Button style={styles.cta} onPress={handleContinue} loading={isGenerating}>
         {isGenerating
-          ? 'Generating cinematic photo...'
+          ? 'Generating mannequin...'
           : generatedImageUrl
-            ? 'Regenerate cinematic photo'
-            : 'Generate cinematic full-body photo'}
+            ? 'Regenerate mannequin'
+            : 'Generate mannequin'}
       </Button>
 
       {generatedImageUrl ? (
