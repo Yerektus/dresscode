@@ -3,6 +3,7 @@ import { BodyProfile } from './body-profile.entity';
 import { MannequinVersion } from './mannequin-version.entity';
 import { TryOnRequest } from './try-on-request.entity';
 import { Subscription } from './subscription.entity';
+import { CreditPurchase } from './credit-purchase.entity';
 
 @Entity('users')
 export class User {
@@ -32,4 +33,7 @@ export class User {
 
   @OneToOne(() => Subscription, (s) => s.user)
   subscription: Subscription;
+
+  @OneToMany(() => CreditPurchase, (purchase) => purchase.user)
+  credit_purchases: CreditPurchase[];
 }

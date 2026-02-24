@@ -91,7 +91,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: uiColors.textPrimary,
     marginBottom: 12,
-    ...(Platform.OS === 'web' ? { fontFamily: "Georgia, 'Times New Roman', serif" } : {}),
+    ...(Platform.OS === 'web'
+      ? {
+          fontFamily: "Georgia, 'Times New Roman', serif",
+        }
+      : {}),
   },
   subtitle: {
     fontSize: 16,

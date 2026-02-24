@@ -3,6 +3,7 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateEmailDto } from './dto/update-email.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -32,5 +33,14 @@ export class AuthController {
     @Body() dto: UpdateEmailDto,
   ) {
     return this.authService.updateEmail(req.user.id, dto.email);
+  }
+
+  @Patch('me/password')
+  @UseGuards(JwtAuthGuard)
+  updatePassword(
+    @Request() req: { user: { id: string } },
+    @Body() dto: UpdatePasswordDto,
+  ) {
+    return this.authService.updatePassword(req.user.id, dto.current_password, dto.new_password);
   }
 }

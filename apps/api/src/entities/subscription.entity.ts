@@ -24,6 +24,9 @@ export class Subscription {
   @Column({ default: 'free' })
   plan_code: string;
 
+  @Column({ type: 'int', default: 10 })
+  credits_balance: number;
+
   @CreateDateColumn()
   created_at: Date;
 

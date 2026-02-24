@@ -1,6 +1,7 @@
-import { IsString } from 'class-validator';
+import { IsIn, IsString } from 'class-validator';
 
 export class CreatePaymentDto {
   @IsString()
-  plan_code: string;
+  @IsIn(['credits_50'])
+  package_code: string;
 }

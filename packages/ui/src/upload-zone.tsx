@@ -1,48 +1,57 @@
-import { Pressable, Text, StyleProp, StyleSheet, Platform, ViewStyle } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
 import { uiColors } from './colors';
 
 interface UploadZoneProps {
   onPickImage?: () => void;
   label?: string;
+  details?: string;
   style?: StyleProp<ViewStyle>;
 }
 
-export function UploadZone({ onPickImage, label = 'Upload clothing image', style }: UploadZoneProps) {
+export function UploadZone({
+  onPickImage,
+  label,
+  details = 'Up to 25 MB\nJPG, PNG, HEIC',
+  style,
+}: UploadZoneProps) {
   return (
     <Pressable onPress={onPickImage} style={[styles.zone, style]}>
-      <Text style={styles.icon}>+</Text>
-      <Text style={styles.label}>{label}</Text>
-      {Platform.OS === 'web' && (
-        <Text style={styles.hint}>or drag & drop here</Text>
-      )}
+      <Ionicons name="add-circle-outline" size={56} color={uiColors.borderStrong} style={styles.icon} />
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+      <Text style={styles.details}>{details}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   zone: {
-    borderWidth: 2,
-    borderColor: uiColors.border,
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    padding: 40,
+    width: 160,
+    minHeight: 180,
+    borderWidth: 1,
+    borderColor: uiColors.borderSoft,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: uiColors.surfaceAlt,
+    backgroundColor: uiColors.surfaceSoft,
   },
   icon: {
-    fontSize: 32,
-    color: uiColors.textSubtle,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   label: {
-    fontSize: 15,
-    color: uiColors.textSecondary,
-    fontWeight: '500',
-  },
-  hint: {
     fontSize: 13,
+    color: uiColors.textSecondary,
+    fontWeight: '600',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  details: {
+    fontSize: 11,
+    lineHeight: 15,
     color: uiColors.textHint,
-    marginTop: 4,
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });

@@ -9,6 +9,7 @@ export const uiColors = {
   surfaceSoft: '#f1f1ef',
 
   buttonHover: '#101010',
+  buttonSecondaryHover: 'rgba(37, 37, 35, 0.1)',
 
   border: '#ddd',
   borderSoft: '#eee',
@@ -38,4 +39,3 @@ export const uiColors = {
   darkBackground: '#151718',
   darkIcon: '#9BA1A6',
 } as const;
-

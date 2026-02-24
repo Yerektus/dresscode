@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
     borderColor: uiColors.borderStrong,
   },
   secondaryHover: {
-    backgroundColor: 'rgba(37, 37, 35, 0.1)',
+    backgroundColor: uiColors.buttonSecondaryHover,
   },
   hoverScale: {
     transform: [{ scale: 1.005 }],

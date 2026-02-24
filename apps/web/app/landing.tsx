@@ -96,7 +96,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: Platform.OS === 'web' ? 72 : 48,
     marginBottom: 24,
-    ...(Platform.OS === 'web' ? { fontFamily: "Georgia, 'Times New Roman', serif" } : {}),
+    ...(Platform.OS === 'web'
+      ? {
+          fontFamily:
+            "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+        }
+      : {}),
   },
   subheading: {
     fontSize: 18,

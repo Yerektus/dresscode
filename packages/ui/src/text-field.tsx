@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { uiColors } from './colors';
 
 interface TextFieldProps extends Omit<TextInputProps, 'style' | 'keyboardType'> {
-  label: string;
+  label?: string;
   value: string;
   onChangeText: (value: string) => void;
   keyboardType?: KeyboardTypeOptions;
@@ -45,8 +45,12 @@ export function TextField({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <Text style={styles.label}>{label}</Text>
-      <Pressable onHoverIn={() => setIsHovered(true)} onHoverOut={() => setIsHovered(false)}>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+      <Pressable
+        style={styles.inputWrapper}
+        onHoverIn={() => setIsHovered(true)}
+        onHoverOut={() => setIsHovered(false)}
+      >
         <TextInput
           style={[styles.input, webInputTransition, isHovered && styles.inputHover, inputStyle]}
           value={value}
@@ -70,12 +74,17 @@ const styles = StyleSheet.create({
     color: uiColors.textDark,
     marginBottom: 8,
   },
+  inputWrapper: {
+    width: '100%',
+  },
   input: {
+    width: '100%',
     borderWidth: 1,
     borderColor: uiColors.border,
     borderRadius: 12,
     padding: 12,
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: '400',
     color: uiColors.textPrimary,
     backgroundColor: uiColors.surfaceSoft,
   },

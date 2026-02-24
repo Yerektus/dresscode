@@ -1,6 +1,7 @@
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
 export type BodyGender = 'female' | 'male';
 export type BodyShape = 'hourglass' | 'pear' | 'apple' | 'rectangle' | 'inverted_triangle';
+export type CreditPackageCode = 'credits_50';
 
 let authToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
@@ -34,9 +35,23 @@ export interface BodyProfileResponse {
 }
 
 export interface SubscriptionResponse {
+  id: string;
+  user_id: string;
+  provider: string;
   plan_code: string;
   status: string;
   current_period_end: string | null;
+  external_payment_id: string | null;
+  credits_balance: number;
+  credit_pack: {
+    code: CreditPackageCode;
+    credits: number;
+    price_usd: number;
+  };
+  billing_mode: 'credits_only';
+  premium_deprecated: true;
+  created_at: string;
+  updated_at: string;
 }
 
 export function setAuthToken(token: string | null) {
@@ -138,6 +153,21 @@ export function updateMeEmail(email: string) {
   });
 }
 
+export function updateMePassword(
+  current_password: string,
+  new_password: string,
+  new_password_confirmation: string,
+) {
+  return request<{ message: string }>('/auth/me/password', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      current_password,
+      new_password,
+      new_password_confirmation,
+    }),
+  });
+}
+
 // Body Profile
 export function getBodyProfile() {
   return request<BodyProfileResponse>('/body-profile');
@@ -207,9 +237,12 @@ export function getSubscription() {
   return request<SubscriptionResponse>('/subscription');
 }
 
-export function createPayment(plan_code: string) {
-  return request<{ payment_url: string }>('/subscription/create-payment', {
-    method: 'POST',
-    body: JSON.stringify({ plan_code }),
-  });
+export function createPayment(package_code: CreditPackageCode) {
+  return request<{ payment_url: string; external_payment_id: string; credits: number; price_usd: number }>(
+    '/subscription/create-payment',
+    {
+      method: 'POST',
+      body: JSON.stringify({ package_code }),
+    },
+  );
 }
