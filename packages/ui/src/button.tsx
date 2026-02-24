@@ -1,4 +1,5 @@
 import { Pressable, Text, StyleSheet, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import { uiColors } from './colors';
 
 interface ButtonProps {
   children: string;
@@ -23,26 +24,26 @@ export function Button({ children, onPress, variant = 'primary', style, textStyl
 
 const styles = StyleSheet.create({
   base: {
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 50,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primary: {
-    backgroundColor: '#111',
+    backgroundColor: uiColors.textOnLight,
   },
   secondary: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#111',
+    borderColor: uiColors.borderStrong,
   },
   text: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+    fontWeight: '500',
+    color: uiColors.textOnDark,
   },
   textSecondary: {
-    color: '#111',
+    color: uiColors.textOnDark,
   },
 });

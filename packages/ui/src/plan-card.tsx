@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { uiColors } from './colors';
 
 interface PlanCardProps {
   name: string;
@@ -16,21 +17,21 @@ export function PlanCard({ name, detail }: PlanCardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: uiColors.surface,
     padding: 20,
     borderRadius: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: uiColors.borderSoft,
   },
   name: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#111',
+    color: uiColors.textPrimary,
     marginBottom: 4,
   },
   detail: {
     fontSize: 14,
-    color: '#888',
+    color: uiColors.textMuted,
   },
 });

@@ -1,4 +1,5 @@
 import { StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
+import { uiColors } from './colors';
 
 interface SectionTitleProps {
   children: string;
@@ -21,12 +22,12 @@ const styles = StyleSheet.create({
   default: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#111',
+    color: uiColors.textPrimary,
   },
   muted: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#aaa',
+    color: uiColors.textHint,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },

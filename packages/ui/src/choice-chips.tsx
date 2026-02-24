@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { uiColors } from './colors';
 
 interface ChoiceChipsProps {
   options: string[];
@@ -40,19 +41,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 50,
     borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#fff',
+    borderColor: uiColors.border,
+    backgroundColor: uiColors.surface,
   },
   chipActive: {
-    backgroundColor: '#111',
-    borderColor: '#111',
+    backgroundColor: uiColors.textPrimary,
+    borderColor: uiColors.textPrimary,
   },
   text: {
     fontSize: 14,
-    color: '#555',
+    color: uiColors.textSecondary,
     fontWeight: '500',
   },
   textActive: {
-    color: '#fff',
+    color: uiColors.white,
   },
 });

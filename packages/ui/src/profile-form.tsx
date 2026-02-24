@@ -1,4 +1,5 @@
 import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { uiColors } from './colors';
 
 interface ProfileField {
   key: string;
@@ -42,15 +43,15 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#333',
+    color: uiColors.textDark,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: uiColors.border,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 16,
     fontSize: 16,
-    backgroundColor: '#fff',
+    backgroundColor: uiColors.surface,
   },
 });

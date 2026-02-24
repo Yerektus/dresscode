@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { uiColors } from './colors';
 
 interface ProbabilityBadgeProps {
   value: number;
@@ -6,7 +7,7 @@ interface ProbabilityBadgeProps {
 }
 
 export function ProbabilityBadge({ value, label = 'Fit' }: ProbabilityBadgeProps) {
-  const color = value >= 80 ? '#16a34a' : value >= 50 ? '#ca8a04' : '#dc2626';
+  const color = value >= 80 ? uiColors.success : value >= 50 ? uiColors.warning : uiColors.danger;
   
   return (
     <View style={[styles.badge, { borderColor: color }]}>
@@ -31,7 +32,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
-    color: '#888',
+    color: uiColors.textMuted,
     marginTop: 2,
   },
 });

@@ -1,4 +1,5 @@
 import { View, Text, Modal, StyleSheet, Pressable } from 'react-native';
+import { uiColors } from './colors';
 
 interface PaywallModalProps {
   visible: boolean;
@@ -35,12 +36,12 @@ export function PaywallModal({ visible, onClose, onSubscribe }: PaywallModalProp
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: uiColors.overlay,
     alignItems: 'center',
     justifyContent: 'center',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: uiColors.surface,
     borderRadius: 24,
     padding: 32,
     width: '90%',
@@ -50,12 +51,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#111',
+    color: uiColors.textPrimary,
     marginBottom: 12,
   },
   description: {
     fontSize: 15,
-    color: '#666',
+    color: uiColors.textTertiary,
     textAlign: 'center',
     marginBottom: 20,
     lineHeight: 22,
@@ -67,17 +68,17 @@ const styles = StyleSheet.create({
   },
   feature: {
     fontSize: 15,
-    color: '#333',
+    color: uiColors.textDark,
   },
   cta: {
-    backgroundColor: '#111',
+    backgroundColor: uiColors.textPrimary,
     paddingVertical: 14,
     paddingHorizontal: 40,
     borderRadius: 50,
     marginBottom: 12,
   },
   ctaText: {
-    color: '#fff',
+    color: uiColors.white,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -85,7 +86,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   dismissText: {
-    color: '#999',
+    color: uiColors.textSubtle,
     fontSize: 14,
   },
 });

@@ -1,4 +1,5 @@
 import { Pressable, Text, StyleProp, StyleSheet, Platform, ViewStyle } from 'react-native';
+import { uiColors } from './colors';
 
 interface UploadZoneProps {
   onPickImage?: () => void;
@@ -21,27 +22,27 @@ export function UploadZone({ onPickImage, label = 'Upload clothing image', style
 const styles = StyleSheet.create({
   zone: {
     borderWidth: 2,
-    borderColor: '#ddd',
+    borderColor: uiColors.border,
     borderStyle: 'dashed',
     borderRadius: 16,
     padding: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fafafa',
+    backgroundColor: uiColors.surfaceAlt,
   },
   icon: {
     fontSize: 32,
-    color: '#999',
+    color: uiColors.textSubtle,
     marginBottom: 8,
   },
   label: {
     fontSize: 15,
-    color: '#555',
+    color: uiColors.textSecondary,
     fontWeight: '500',
   },
   hint: {
     fontSize: 13,
-    color: '#aaa',
+    color: uiColors.textHint,
     marginTop: 4,
   },
 });

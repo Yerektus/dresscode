@@ -1,4 +1,5 @@
 import { Pressable, StyleProp, StyleSheet, Text, TextStyle, ViewStyle } from 'react-native';
+import { uiColors } from './colors';
 
 interface TextLinkProps {
   children: string;
@@ -45,12 +46,12 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 14,
-    color: '#555',
+    color: uiColors.textSecondary,
   },
   muted: {
-    color: '#999',
+    color: uiColors.textSubtle,
   },
   danger: {
-    color: '#dc2626',
+    color: uiColors.danger,
   },
 });

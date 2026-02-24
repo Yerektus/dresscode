@@ -2,6 +2,7 @@ import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Button } from '@repo/ui/button';
+import { uiColors } from '@repo/ui/colors';
 import { ScreenContainer } from '@repo/ui/screen-container';
 import { TextField } from '@repo/ui/text-field';
 import { TextLink } from '@repo/ui/text-link';
@@ -73,7 +74,7 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   backText: {
     fontSize: 15,
-    color: '#555',
+    color: uiColors.textSecondary,
   },
   form: {
     width: '100%',

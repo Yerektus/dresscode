@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button } from '@repo/ui/button';
-import { TextLink } from '@repo/ui/text-link';
+import { uiColors } from '@repo/ui/colors';
 
 export default function HomePage() {
   const router = useRouter();
@@ -11,9 +11,9 @@ export default function HomePage() {
       <View style={styles.nav}>
         <Text style={styles.logo}>DRESSCODE</Text>
         <View style={styles.navLinks}>
-          <TextLink onPress={() => router.push('/(auth)/login')} style={styles.navLink}>
-            Sign In
-          </TextLink>
+          <Button onPress={() => router.push('/(auth)/login')}>
+            Try It Now
+          </Button>
         </View>
       </View>
 
@@ -36,7 +36,7 @@ export default function HomePage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#faf9f7',
+    backgroundColor: uiColors.background,
   },
   nav: {
     flexDirection: 'row',
@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 4,
-    color: '#111',
+    color: uiColors.textPrimary,
   },
   navLinks: {
     flexDirection: 'row',
@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   },
   navLink: {
     fontSize: 15,
-    color: '#555',
+    color: uiColors.textSecondary,
     fontWeight: '500',
   },
   hero: {
@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
   badge: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#888',
+    color: uiColors.textMuted,
     letterSpacing: 2,
     textTransform: 'uppercase',
     marginBottom: 24,
@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: Platform.OS === 'web' ? 64 : 40,
     fontWeight: '700',
-    color: '#111',
+    color: uiColors.textPrimary,
     textAlign: 'center',
     lineHeight: Platform.OS === 'web' ? 72 : 48,
     marginBottom: 24,
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
   },
   subheading: {
     fontSize: 18,
-    color: '#666',
+    color: uiColors.textTertiary,
     textAlign: 'center',
     lineHeight: 28,
     maxWidth: 560,

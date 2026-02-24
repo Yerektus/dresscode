@@ -9,6 +9,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { uiColors } from './colors';
 
 interface ScreenContainerProps {
   children: ReactNode;
@@ -68,7 +69,7 @@ export function ScreenContainer({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#faf9f7',
+    backgroundColor: uiColors.background,
   },
   scrollContent: {
     flexGrow: 1,
@@ -88,13 +89,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#111',
+    color: uiColors.textPrimary,
     marginBottom: 12,
     ...(Platform.OS === 'web' ? { fontFamily: "Georgia, 'Times New Roman', serif" } : {}),
   },
   subtitle: {
     fontSize: 16,
-    color: '#888',
+    color: uiColors.textMuted,
     lineHeight: 24,
     marginBottom: 32,
   },

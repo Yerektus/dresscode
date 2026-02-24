@@ -9,6 +9,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { uiColors } from './colors';
 
 interface TextFieldProps extends Omit<TextInputProps, 'style' | 'keyboardType'> {
   label: string;
@@ -26,6 +27,7 @@ export function TextField({
   keyboardType = 'default',
   containerStyle,
   inputStyle,
+  placeholderTextColor,
   ...props
 }: TextFieldProps) {
   return (
@@ -36,6 +38,7 @@ export function TextField({
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
+        placeholderTextColor={placeholderTextColor ?? uiColors.textHint}
         {...props}
       />
     </View>
@@ -49,16 +52,16 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#333',
+    color: uiColors.textDark,
     marginBottom: 8,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: uiColors.border,
     borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    padding: 12,
     fontSize: 16,
-    backgroundColor: '#fff',
+    color: uiColors.textPrimary,
+    backgroundColor: uiColors.surfaceSoft,
   },
 });

@@ -1,4 +1,5 @@
 import { View, Image, StyleSheet, ImageSourcePropType } from 'react-native';
+import { uiColors } from './colors';
 
 interface ImagePreviewProps {
   source: ImageSourcePropType | { uri: string };
@@ -18,7 +19,7 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: uiColors.surfaceMuted,
   },
   image: {
     width: '100%',
