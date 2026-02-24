@@ -1,4 +1,6 @@
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
+export type BodyGender = 'female' | 'male';
+export type BodyShape = 'hourglass' | 'pear' | 'apple' | 'rectangle' | 'inverted_triangle';
 
 let authToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
@@ -13,6 +15,28 @@ export interface AuthUser {
 export interface AuthResponse {
   access_token: string;
   user: AuthUser;
+}
+
+export interface BodyProfileResponse {
+  id: string;
+  user_id: string;
+  height_cm: number;
+  weight_kg: number;
+  chest_cm?: number | null;
+  waist_cm?: number | null;
+  hips_cm?: number | null;
+  sleeve_cm?: number | null;
+  inseam_cm?: number | null;
+  body_shape?: BodyShape | null;
+  gender?: BodyGender | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubscriptionResponse {
+  plan_code: string;
+  status: string;
+  current_period_end: string | null;
 }
 
 export function setAuthToken(token: string | null) {
@@ -107,9 +131,16 @@ export function getMe() {
   return request<AuthUser>('/auth/me');
 }
 
+export function updateMeEmail(email: string) {
+  return request<AuthUser>('/auth/me/email', {
+    method: 'PATCH',
+    body: JSON.stringify({ email }),
+  });
+}
+
 // Body Profile
 export function getBodyProfile() {
-  return request<{ id: string; height_cm: number; weight_kg: number }>('/body-profile');
+  return request<BodyProfileResponse>('/body-profile');
 }
 
 export function saveBodyProfile(data: {
@@ -121,6 +152,7 @@ export function saveBodyProfile(data: {
   sleeve_cm?: number;
   inseam_cm?: number;
   body_shape?: string;
+  gender?: BodyGender;
 }) {
   return request('/body-profile', {
     method: 'POST',
@@ -172,11 +204,7 @@ export function getTryOnHistory() {
 
 // Subscription
 export function getSubscription() {
-  return request<{
-    plan_code: string;
-    status: string;
-    current_period_end: string | null;
-  }>('/subscription');
+  return request<SubscriptionResponse>('/subscription');
 }
 
 export function createPayment(plan_code: string) {

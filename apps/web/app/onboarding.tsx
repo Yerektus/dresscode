@@ -1,4 +1,4 @@
-import { Image, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Button } from '@repo/ui/button';
@@ -7,6 +7,8 @@ import { SectionTitle } from '@repo/ui/section-title';
 import { WheelPicker, type WheelPickerOption } from '@repo/ui/wheel-picker';
 import * as api from '@/services/api';
 import { useAuth } from '@/providers/auth-provider';
+
+type BodyGender = 'female' | 'male';
 
 function buildRangeOptions(start: number, end: number): WheelPickerOption[] {
   const options: WheelPickerOption[] = [];
@@ -29,37 +31,45 @@ export default function OnboardingScreen() {
   const chestOptions = useMemo(() => buildOptionalRangeOptions(70, 150), []);
   const waistOptions = useMemo(() => buildOptionalRangeOptions(50, 140), []);
   const hipsOptions = useMemo(() => buildOptionalRangeOptions(70, 160), []);
+  const genderOptions = useMemo<WheelPickerOption[]>(
+    () => [
+      { label: 'Female', value: 'female' },
+      { label: 'Male', value: 'male' },
+    ],
+    [],
+  );
   const [height, setHeight] = useState('170');
   const [weight, setWeight] = useState('70');
+  const [gender, setGender] = useState<BodyGender>('female');
   const [chest, setChest] = useState('');
   const [waist, setWaist] = useState('');
   const [hips, setHips] = useState('');
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
   const handleHeightChange = (nextValue: string) => {
     setHeight(nextValue);
-    setGeneratedImageUrl(null);
   };
 
   const handleWeightChange = (nextValue: string) => {
     setWeight(nextValue);
-    setGeneratedImageUrl(null);
+  };
+
+  const handleGenderChange = (nextValue: string) => {
+    if (nextValue === 'female' || nextValue === 'male') {
+      setGender(nextValue);
+    }
   };
 
   const handleChestChange = (nextValue: string) => {
     setChest(nextValue);
-    setGeneratedImageUrl(null);
   };
 
   const handleWaistChange = (nextValue: string) => {
     setWaist(nextValue);
-    setGeneratedImageUrl(null);
   };
 
   const handleHipsChange = (nextValue: string) => {
     setHips(nextValue);
-    setGeneratedImageUrl(null);
   };
 
   if (isLoading) {
@@ -93,12 +103,16 @@ export default function OnboardingScreen() {
       await api.saveBodyProfile({
         height_cm: parsedHeight,
         weight_kg: parsedWeight,
+        gender,
         ...(chest ? { chest_cm: parseFloat(chest) } : {}),
         ...(waist ? { waist_cm: parseFloat(waist) } : {}),
         ...(hips ? { hips_cm: parseFloat(hips) } : {}),
       });
       const generatedMannequin = await api.generateMannequin();
-      setGeneratedImageUrl(generatedMannequin.front_image_url);
+      router.replace({
+        pathname: '/onboarding-result',
+        params: { imageUrl: generatedMannequin.front_image_url },
+      });
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Failed to save profile');
     } finally {
@@ -117,12 +131,22 @@ export default function OnboardingScreen() {
       <View style={styles.row}>
         <View style={styles.pickerField}>
           <WheelPicker
+            label="Gender"
+            options={genderOptions}
+            value={gender}
+            onChange={handleGenderChange}
+          />
+        </View>
+        <View style={styles.pickerField}>
+          <WheelPicker
             label="Height (cm)"
             options={heightOptions}
             value={height}
             onChange={handleHeightChange}
           />
         </View>
+      </View>
+      <View style={styles.row}>
         <View style={styles.pickerField}>
           <WheelPicker
             label="Weight (kg)"
@@ -131,6 +155,7 @@ export default function OnboardingScreen() {
             onChange={handleWeightChange}
           />
         </View>
+        <View style={styles.pickerField} />
       </View>
 
       <SectionTitle variant="muted">Optional (improves accuracy)</SectionTitle>
@@ -165,28 +190,8 @@ export default function OnboardingScreen() {
       </View>
 
       <Button style={styles.cta} onPress={handleContinue} loading={isGenerating}>
-        {isGenerating
-          ? 'Generating mannequin...'
-          : generatedImageUrl
-            ? 'Regenerate mannequin'
-            : 'Generate mannequin'}
+        {isGenerating ? 'Generating mannequin...' : 'Generate mannequin'}
       </Button>
-
-      {generatedImageUrl ? (
-        <View style={styles.previewSection}>
-          <SectionTitle variant="muted">Generated preview</SectionTitle>
-          <View style={styles.previewFrame}>
-            <Image
-              source={{ uri: generatedImageUrl }}
-              style={styles.previewImage}
-              resizeMode="cover"
-            />
-          </View>
-          <Button variant="secondary" style={styles.continueButton} onPress={() => router.replace('/(tabs)')}>
-            Continue to app
-          </Button>
-        </View>
-      ) : null}
     </ScreenContainer>
   );
 }
@@ -203,24 +208,5 @@ const styles = StyleSheet.create({
   cta: {
     marginTop: 16,
     marginBottom: 12,
-  },
-  previewSection: {
-    width: '100%',
-    marginTop: 8,
-  },
-  previewFrame: {
-    width: '100%',
-    maxWidth: 430,
-    alignSelf: 'center',
-    height: 620,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-  },
-  continueButton: {
-    marginTop: 14,
   },
 });

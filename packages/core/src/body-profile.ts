@@ -1,4 +1,5 @@
 export type BodyShape = 'hourglass' | 'pear' | 'apple' | 'rectangle' | 'inverted_triangle';
+export type BodyGender = 'female' | 'male';
 
 export interface BodyProfileDto {
   id: string;
@@ -11,6 +12,7 @@ export interface BodyProfileDto {
   sleeve_cm?: number | null;
   inseam_cm?: number | null;
   body_shape?: BodyShape | null;
+  gender?: BodyGender | null;
   created_at: string;
   updated_at: string;
 }
@@ -24,6 +26,7 @@ export interface CreateBodyProfileDto {
   sleeve_cm?: number;
   inseam_cm?: number;
   body_shape?: BodyShape;
+  gender?: BodyGender;
 }
 
 export interface UpdateBodyProfileDto extends Partial<CreateBodyProfileDto> {}

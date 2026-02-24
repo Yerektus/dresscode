@@ -1,8 +1,26 @@
-import 'dotenv/config';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
+import { config as dotenvConfig } from 'dotenv';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+
+function loadEnv() {
+  const envCandidates = [
+    resolve(process.cwd(), '.env'),
+    resolve(process.cwd(), '../.env'),
+    resolve(process.cwd(), '../../.env'),
+  ];
+
+  for (const envPath of envCandidates) {
+    if (existsSync(envPath)) {
+      dotenvConfig({ path: envPath, override: false });
+    }
+  }
+}
+
+loadEnv();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

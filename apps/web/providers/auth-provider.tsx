@@ -27,6 +27,7 @@ interface AuthContextValue {
     password: string,
     passwordConfirmation: string,
   ) => Promise<void>;
+  updateCurrentUser: (nextUser: api.AuthUser) => void;
   signOut: () => void;
   getPostAuthRoute: () => Promise<AuthRoute>;
 }
@@ -130,6 +131,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [applySession],
   );
 
+  const updateCurrentUser = useCallback(
+    (nextUser: api.AuthUser) => {
+      setUser(nextUser);
+      if (token) {
+        saveStoredSession({ token, user: nextUser });
+      }
+    },
+    [token],
+  );
+
   const signOut = useCallback(() => {
     clearSession();
   }, [clearSession]);
@@ -155,10 +166,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isLoading,
       signIn,
       signUp,
+      updateCurrentUser,
       signOut,
       getPostAuthRoute,
     }),
-    [user, token, isLoading, signIn, signUp, signOut, getPostAuthRoute],
+    [user, token, isLoading, signIn, signUp, updateCurrentUser, signOut, getPostAuthRoute],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -33,6 +33,9 @@ export class BodyProfile {
   @Column({ type: 'varchar', nullable: true })
   body_shape: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  gender: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -42,7 +42,7 @@ export function Button({
   const [isHovered, setIsHovered] = useState(false);
   const isSecondary = variant === 'secondary';
   const isDisabled = disabled || loading;
-  const spinnerColor = uiColors.textOnDark;
+  const spinnerColor = isSecondary ? uiColors.textOnLight : uiColors.textOnDark;
 
   return (
     <Pressable
@@ -115,6 +115,6 @@ const styles = StyleSheet.create({
     color: uiColors.textOnDark,
   },
   textSecondary: {
-    color: uiColors.textOnDark,
+    color: uiColors.textOnLight,
   },
 });

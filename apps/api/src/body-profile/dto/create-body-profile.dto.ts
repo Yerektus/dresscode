@@ -1,4 +1,6 @@
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+
+const ALLOWED_GENDERS = ['female', 'male'] as const;
 
 export class CreateBodyProfileDto {
   @IsNumber()
@@ -32,4 +34,9 @@ export class CreateBodyProfileDto {
   @IsOptional()
   @IsString()
   body_shape?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(ALLOWED_GENDERS)
+  gender?: (typeof ALLOWED_GENDERS)[number];
 }

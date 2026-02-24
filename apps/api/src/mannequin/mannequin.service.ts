@@ -4,20 +4,34 @@ import { Repository } from 'typeorm';
 import { MannequinVersion } from '../entities/mannequin-version.entity';
 import { BodyProfile } from '../entities/body-profile.entity';
 
-interface WaveSpeedPredictionResponse {
+interface WaveSpeedApiEnvelope<T = unknown> {
+  code?: number;
+  message?: unknown;
+  data?: T;
+  [key: string]: unknown;
+}
+
+interface WaveSpeedPredictionData {
   id?: string;
   status?: string;
-  data?: unknown;
-  message?: string;
+  outputs?: unknown;
+  urls?: unknown;
+  error?: unknown;
+  message?: unknown;
+  [key: string]: unknown;
 }
 
 @Injectable()
 export class MannequinService {
   private readonly waveSpeedApiBaseUrl =
     process.env.WAVESPEED_API_BASE_URL ?? 'https://api.wavespeed.ai/api/v3';
-  private readonly waveSpeedModelPath =
-    process.env.WAVESPEED_MODEL_PATH ?? '/bytedance/seedream-v3/text-to-image';
-  private readonly waveSpeedImageSize = process.env.WAVESPEED_IMAGE_SIZE ?? '1024x1536';
+  private readonly waveSpeedModelPaths = this.buildModelPathCandidates(
+    process.env.WAVESPEED_MODEL_PATH,
+    process.env.WAVESPEED_MODEL_FALLBACK_PATHS,
+  );
+  private readonly waveSpeedImageSize = this.normalizeImageSize(
+    process.env.WAVESPEED_IMAGE_SIZE ?? '1024*1536',
+  );
   private readonly waveSpeedPollIntervalMs = this.parsePositiveInt(
     process.env.WAVESPEED_POLL_INTERVAL_MS,
     1500,
@@ -59,6 +73,7 @@ export class MannequinService {
         chest_cm: profile.chest_cm,
         waist_cm: profile.waist_cm,
         hips_cm: profile.hips_cm,
+        gender: profile.gender,
       },
       front_image_url: generatedImageUrl,
       side_image_url: null,
@@ -69,29 +84,58 @@ export class MannequinService {
   }
 
   private async generateMannequinImage(profile: BodyProfile): Promise<string> {
-    const response = await this.waveSpeedRequest<WaveSpeedPredictionResponse>(
-      this.resolveWaveSpeedUrl(this.waveSpeedModelPath),
+    let lastModelError: string | null = null;
+
+    for (const modelPath of this.waveSpeedModelPaths) {
+      try {
+        return await this.generateMannequinImageWithModel(profile, modelPath);
+      } catch (error) {
+        if (!this.isModelMissingError(error)) {
+          throw error;
+        }
+
+        lastModelError = this.extractErrorText(error);
+      }
+    }
+
+    throw new ServiceUnavailableException(
+      `WaveSpeed request failed for all configured models. Last error: ${lastModelError ?? 'unknown'}`,
+    );
+  }
+
+  private async generateMannequinImageWithModel(
+    profile: BodyProfile,
+    modelPath: string,
+  ): Promise<string> {
+    const submitPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
+      this.resolveWaveSpeedUrl(modelPath),
       {
         method: 'POST',
         body: JSON.stringify({
           prompt: this.buildCinematicPrompt(profile),
           size: this.waveSpeedImageSize,
-          seed: Math.floor(Math.random() * 1_000_000_000),
+          seed: -1,
+          enable_prompt_expansion: true,
+          enable_base64_output: false,
         }),
       },
     );
 
-    const status = this.normalizeStatus(response.status);
-    const immediateImage = this.extractImageUrl(response.data);
-    if (status === 'SUCCESS' && immediateImage) {
+    const submission = this.normalizePrediction(submitPayload);
+    const immediateImage = this.extractImageUrl(submission.outputs);
+    if (this.isCompletedStatus(submission.status) && immediateImage) {
       return immediateImage;
     }
 
-    if (status === 'FAILED' || status === 'ERROR' || status === 'CANCELLED') {
-      throw new ServiceUnavailableException('WaveSpeed failed to generate mannequin image');
+    if (this.isFailedStatus(submission.status, submission.error ?? submission.message)) {
+      throw new ServiceUnavailableException(
+        `WaveSpeed failed to generate mannequin image: ${this.stringifyUnknown(
+          submission.error ?? submission.message,
+        )}`,
+      );
     }
 
-    if (!response.id) {
+    if (!submission.id) {
       throw new ServiceUnavailableException('WaveSpeed did not return task id');
     }
 
@@ -99,23 +143,27 @@ export class MannequinService {
     while (Date.now() < deadline) {
       await this.sleep(this.waveSpeedPollIntervalMs);
 
-      const result = await this.waveSpeedRequest<WaveSpeedPredictionResponse>(
-        this.resolveWaveSpeedUrl(`/predictions/${response.id}/result`),
+      const resultPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
+        this.resolveWaveSpeedUrl(`/predictions/${submission.id}/result`),
         { method: 'GET' },
       );
 
-      const resultStatus = this.normalizeStatus(result.status);
-      const imageUrl = this.extractImageUrl(result.data);
+      const result = this.normalizePrediction(resultPayload);
+      const imageUrl = this.extractImageUrl(result.outputs);
 
-      if (resultStatus === 'SUCCESS') {
+      if (this.isCompletedStatus(result.status)) {
         if (imageUrl) {
           return imageUrl;
         }
-        throw new ServiceUnavailableException('WaveSpeed returned SUCCESS without image url');
+        throw new ServiceUnavailableException('WaveSpeed returned completed status without image');
       }
 
-      if (resultStatus === 'FAILED' || resultStatus === 'ERROR' || resultStatus === 'CANCELLED') {
-        throw new ServiceUnavailableException('WaveSpeed failed to generate mannequin image');
+      if (this.isFailedStatus(result.status, result.error ?? result.message)) {
+        throw new ServiceUnavailableException(
+          `WaveSpeed failed to generate mannequin image: ${this.stringifyUnknown(
+            result.error ?? result.message,
+          )}`,
+        );
       }
     }
 
@@ -128,6 +176,7 @@ export class MannequinService {
     const chest = this.toNullableNumber(profile.chest_cm);
     const waist = this.toNullableNumber(profile.waist_cm);
     const hips = this.toNullableNumber(profile.hips_cm);
+    const gender = this.toGenderDescriptor(profile.gender);
 
     const measurements = [
       height ? `height ${height} cm` : null,
@@ -136,6 +185,7 @@ export class MannequinService {
       waist ? `waist ${waist} cm` : null,
       hips ? `hips ${hips} cm` : null,
       profile.body_shape ? `body shape ${profile.body_shape}` : null,
+      gender ? `gender ${gender}` : null,
     ]
       .filter((value): value is string => Boolean(value))
       .join(', ');
@@ -144,9 +194,10 @@ export class MannequinService {
       'cinematic full-body portrait photo of a single adult person,',
       'head-to-toe fully visible in frame, standing naturally, front-facing,',
       'realistic anatomy matching provided body measurements,',
-      'fashion editorial style, 35mm film look, soft dramatic studio lighting,',
+      'person is fully clothed in simple fitted casual clothes (plain t-shirt and straight pants),',
+      'fashion editorial style, cinematic composition, 35mm film look, soft dramatic studio lighting,',
       'neutral clean background, high detail, ultra realistic skin and texture,',
-      'no text, no watermark, no logo, no extra limbs, no cropped body.',
+      'no text, no watermark, no logo, no extra limbs, no cropped body, no nudity.',
       measurements ? `Body characteristics: ${measurements}.` : '',
     ]
       .join(' ')
@@ -183,6 +234,27 @@ export class MannequinService {
     return parsedBody as T;
   }
 
+  private normalizePrediction(payload: WaveSpeedApiEnvelope<WaveSpeedPredictionData>): WaveSpeedPredictionData {
+    const root = this.asRecord(payload);
+    const nestedData = this.asRecord(root?.data);
+    const source = nestedData ?? root ?? {};
+
+    const status = this.asString(source.status) ?? this.asString(root?.status) ?? undefined;
+    const outputs = source.outputs ?? source.output ?? root?.outputs ?? root?.output;
+    const error = source.error ?? source.message ?? root?.error ?? root?.message;
+    const message = source.message ?? root?.message;
+
+    return {
+      ...source,
+      id: this.asString(source.id) ?? this.asString(root?.id) ?? undefined,
+      status,
+      outputs,
+      urls: source.urls ?? root?.urls,
+      error,
+      message,
+    };
+  }
+
   private resolveWaveSpeedUrl(pathOrUrl: string): string {
     if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
       return pathOrUrl;
@@ -214,6 +286,7 @@ export class MannequinService {
     const record = data as Record<string, unknown>;
     const directCandidates = [
       record.url,
+      record.download_url,
       record.image_url,
       record.result_image_url,
       record.output_url,
@@ -236,8 +309,23 @@ export class MannequinService {
     return null;
   }
 
-  private normalizeStatus(status: string | undefined): string {
-    return (status ?? '').toUpperCase();
+  private isCompletedStatus(status: string | undefined): boolean {
+    const normalized = (status ?? '').toLowerCase();
+    return normalized === 'completed' || normalized === 'success' || normalized === 'succeeded';
+  }
+
+  private isFailedStatus(status: string | undefined, error: unknown): boolean {
+    const normalized = (status ?? '').toLowerCase();
+    if (
+      normalized === 'failed' ||
+      normalized === 'error' ||
+      normalized === 'cancelled' ||
+      normalized === 'canceled'
+    ) {
+      return true;
+    }
+
+    return !normalized && Boolean(error);
   }
 
   private tryParseJson(payload: string): unknown {
@@ -253,13 +341,42 @@ export class MannequinService {
   }
 
   private extractErrorMessage(payload: unknown): string | null {
+    if (typeof payload === 'string') {
+      return payload.trim() || null;
+    }
+
     if (!payload || typeof payload !== 'object') {
       return null;
     }
 
-    const message = (payload as Record<string, unknown>).message;
+    const record = payload as Record<string, unknown>;
+    const message = record.message;
     if (typeof message === 'string' && message.trim()) {
       return message;
+    }
+
+    if (Array.isArray(message) && message.length > 0) {
+      return message.map((item) => this.stringifyUnknown(item)).join(', ');
+    }
+
+    const error = record.error;
+    if (typeof error === 'string' && error.trim()) {
+      return error;
+    }
+
+    if (error && typeof error === 'object') {
+      const nested = this.extractErrorMessage(error);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    const data = record.data;
+    if (data && typeof data === 'object') {
+      const nested = this.extractErrorMessage(data);
+      if (nested) {
+        return nested;
+      }
     }
 
     return null;
@@ -274,12 +391,162 @@ export class MannequinService {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  private toGenderDescriptor(value: string | null | undefined): string | null {
+    const normalized = (value ?? '').trim().toLowerCase();
+    if (normalized === 'female') {
+      return 'female';
+    }
+
+    if (normalized === 'male') {
+      return 'male';
+    }
+
+    return null;
+  }
+
   private parsePositiveInt(rawValue: string | undefined, fallback: number): number {
     const parsed = Number.parseInt(rawValue ?? '', 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return fallback;
     }
     return parsed;
+  }
+
+  private buildModelPathCandidates(
+    primaryPath: string | undefined,
+    fallbackPaths: string | undefined,
+  ): string[] {
+    const defaults = [
+      'bytedance/seedream-v3.1',
+      'bytedance/seedream-v4',
+      'bytedance/seedream-v4.5',
+      'wavespeed-ai/flux-2-dev/text-to-image',
+    ];
+
+    const envCandidates = [primaryPath, ...(fallbackPaths?.split(',') ?? [])].flatMap((value) =>
+      this.expandModelPathCandidate(value),
+    );
+    const allCandidates = [...envCandidates, ...defaults];
+    const uniqueCandidates: string[] = [];
+
+    for (const candidate of allCandidates.map((value) => this.normalizeModelPathCandidate(value))) {
+      if (!candidate) {
+        continue;
+      }
+
+      if (!uniqueCandidates.includes(candidate)) {
+        uniqueCandidates.push(candidate);
+      }
+    }
+
+    return uniqueCandidates;
+  }
+
+  private expandModelPathCandidate(value: string | undefined): string[] {
+    const normalized = this.normalizeModelPathCandidate(value);
+    if (!normalized) {
+      return [];
+    }
+
+    const candidates = [normalized];
+    if (normalized.endsWith('/text-to-image')) {
+      const withoutTaskSuffix = normalized.slice(0, -'/text-to-image'.length);
+      if (withoutTaskSuffix) {
+        candidates.push(withoutTaskSuffix);
+      }
+    }
+
+    return candidates;
+  }
+
+  private normalizeModelPathCandidate(value: string | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+
+    let normalized = value.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      try {
+        normalized = new URL(normalized).pathname;
+      } catch {
+        return normalized;
+      }
+    }
+
+    normalized = normalized
+      .replace(/^\/api\/v\d+\//, '/')
+      .replace(/^api\/v\d+\//, '')
+      .replace(/^\/+/, '');
+
+    return normalized || null;
+  }
+
+  private normalizeImageSize(value: string): string {
+    const normalized = value.trim().replace(/[xX]/g, '*');
+    return normalized || '1024*1536';
+  }
+
+  private isModelMissingError(error: unknown): boolean {
+    const message = this.extractErrorText(error).toLowerCase();
+    return message.includes('product not found') || message.includes('model not found');
+  }
+
+  private extractErrorText(error: unknown): string {
+    if (error instanceof ServiceUnavailableException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return response;
+      }
+
+      if (response && typeof response === 'object') {
+        const responseMessage = (response as Record<string, unknown>).message;
+        if (typeof responseMessage === 'string') {
+          return responseMessage;
+        }
+
+        if (Array.isArray(responseMessage) && responseMessage.length > 0) {
+          return responseMessage.map((item) => this.stringifyUnknown(item)).join(', ');
+        }
+      }
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return this.stringifyUnknown(error);
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    return value as Record<string, unknown>;
+  }
+
+  private asString(value: unknown): string | null {
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+
+    return null;
+  }
+
+  private stringifyUnknown(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   }
 
   private sleep(ms: number): Promise<void> {

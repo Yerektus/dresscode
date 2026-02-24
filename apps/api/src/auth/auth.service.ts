@@ -64,6 +64,27 @@ export class AuthService {
     return this.toPublicUser(user);
   }
 
+  async updateEmail(userId: string, nextEmail: string): Promise<PublicUser> {
+    const normalizedEmail = this.normalizeEmail(nextEmail);
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.email === normalizedEmail) {
+      return this.toPublicUser(user);
+    }
+
+    const existingWithEmail = await this.userRepo.findOne({ where: { email: normalizedEmail } });
+    if (existingWithEmail && existingWithEmail.id !== userId) {
+      throw new ConflictException('Email already registered');
+    }
+
+    user.email = normalizedEmail;
+    const updatedUser = await this.userRepo.save(user);
+    return this.toPublicUser(updatedUser);
+  }
+
   private buildAuthResponse(user: User) {
     const payload = { sub: user.id, email: user.email };
     return {
