@@ -18,7 +18,7 @@ import { SubscriptionModule } from './subscription/subscription.module';
       password: process.env.DB_PASSWORD ?? 'postgres',
       database: process.env.DB_NAME ?? 'dresscode',
       autoLoadEntities: true,
-      synchronize: false,
+      synchronize: process.env.NODE_ENV !== 'production',
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 30 }]),
     AuthModule,

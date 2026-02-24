@@ -5,7 +5,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]
@@ -15,7 +15,13 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "env": [
+        "DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_NAME",
+        "JWT_SECRET", "PORT", "CORS_ORIGIN",
+        "WEBKASSA_WEBHOOK_SECRET",
+        "EXPO_PUBLIC_API_URL"
+      ]
     }
   }
 }
