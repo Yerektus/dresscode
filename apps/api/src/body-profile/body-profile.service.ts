@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BodyProfile } from '../entities/body-profile.entity';
@@ -12,7 +12,12 @@ export class BodyProfileService {
   ) {}
 
   async findByUser(userId: string) {
-    return this.repo.findOne({ where: { user_id: userId } });
+    const profile = await this.repo.findOne({ where: { user_id: userId } });
+    if (!profile) {
+      throw new NotFoundException('Body profile not found');
+    }
+
+    return profile;
   }
 
   async createOrUpdate(userId: string, dto: CreateBodyProfileDto) {

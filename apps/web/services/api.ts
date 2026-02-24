@@ -27,6 +27,18 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler;
 }
 
+function tryParseJson(raw: string): unknown {
+  if (!raw.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -42,11 +54,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers,
   });
 
+  const rawBody = await res.text();
+  const parsedBody = tryParseJson(rawBody);
+
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { message?: string | string[] };
-    const message = Array.isArray(body.message)
-      ? body.message.join(', ')
-      : body.message ?? 'Request failed';
+    const body = (parsedBody && parsedBody !== undefined ? parsedBody : {}) as {
+      message?: string | string[];
+    };
+    const message =
+      Array.isArray(body.message) ? body.message.join(', ') : body.message ?? 'Request failed';
 
     if (res.status === 401) {
       unauthorizedHandler?.();
@@ -55,7 +71,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(res.status, message);
   }
 
-  return res.json() as Promise<T>;
+  if (parsedBody === undefined) {
+    throw new ApiError(res.status, 'Invalid server response');
+  }
+
+  return parsedBody as T;
 }
 
 export class ApiError extends Error {

@@ -27,7 +27,7 @@ export default function LoginScreen() {
     <ScreenContainer
       scroll={false}
       centerContent
-      maxWidth={400}
+      maxWidth={512}
       title="Welcome back"
       subtitle="Sign in to your account"
     >

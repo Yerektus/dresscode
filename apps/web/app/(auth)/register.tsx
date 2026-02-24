@@ -28,7 +28,7 @@ export default function RegisterScreen() {
     <ScreenContainer
       scroll={false}
       centerContent
-      maxWidth={400}
+      maxWidth={512}
       title="Create account"
       subtitle="Start your virtual try-on journey"
     >
