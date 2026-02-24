@@ -2,23 +2,23 @@ import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Button } from '@repo/ui/button';
-import { uiColors } from '@repo/ui/colors';
 import { ScreenContainer } from '@repo/ui/screen-container';
 import { TextField } from '@repo/ui/text-field';
 import { TextLink } from '@repo/ui/text-link';
-import * as api from '@/services/api';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { signUp, getPostAuthRoute } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleRegister = async () => {
     try {
-      const res = await api.register(email, password, confirmPassword);
-      api.setAuthToken(res.access_token);
-      router.replace('/onboarding');
+      await signUp(email, password, confirmPassword);
+      const route = await getPostAuthRoute();
+      router.replace(route);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Registration failed');
     }
@@ -31,11 +31,6 @@ export default function RegisterScreen() {
       maxWidth={400}
       title="Create account"
       subtitle="Start your virtual try-on journey"
-      leading={
-        <TextLink onPress={() => router.back()} style={styles.backText}>
-          ← Back
-        </TextLink>
-      }
     >
       <View style={styles.form}>
         <TextField
@@ -72,10 +67,6 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  backText: {
-    fontSize: 15,
-    color: uiColors.textSecondary,
-  },
   form: {
     width: '100%',
   },

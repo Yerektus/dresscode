@@ -2,22 +2,22 @@ import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Button } from '@repo/ui/button';
-import { uiColors } from '@repo/ui/colors';
 import { ScreenContainer } from '@repo/ui/screen-container';
 import { TextField } from '@repo/ui/text-field';
 import { TextLink } from '@repo/ui/text-link';
-import * as api from '@/services/api';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { signIn, getPostAuthRoute } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
     try {
-      const res = await api.login(email, password);
-      api.setAuthToken(res.access_token);
-      router.replace('/(tabs)');
+      await signIn(email, password);
+      const route = await getPostAuthRoute();
+      router.replace(route);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Login failed');
     }
@@ -30,11 +30,6 @@ export default function LoginScreen() {
       maxWidth={400}
       title="Welcome back"
       subtitle="Sign in to your account"
-      leading={
-        <TextLink onPress={() => router.back()} style={styles.backText}>
-          ← Back
-        </TextLink>
-      }
     >
       <View style={styles.form}>
         <TextField
@@ -56,7 +51,7 @@ export default function LoginScreen() {
           Sign In
         </Button>
         <TextLink align="center" onPress={() => router.push('/(auth)/register')}>
-          Don't have an account? Register
+          No account yet? Register
         </TextLink>
       </View>
     </ScreenContainer>
@@ -64,10 +59,6 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  backText: {
-    fontSize: 15,
-    color: uiColors.textSecondary,
-  },
   form: {
     width: '100%',
   },

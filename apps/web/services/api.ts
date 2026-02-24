@@ -1,6 +1,19 @@
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
 
 let authToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  user: AuthUser;
+}
 
 export function setAuthToken(token: string | null) {
   authToken = token;
@@ -8,6 +21,10 @@ export function setAuthToken(token: string | null) {
 
 export function getAuthToken(): string | null {
   return authToken;
+}
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -26,8 +43,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.message ?? 'Request failed');
+    const body = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+    const message = Array.isArray(body.message)
+      ? body.message.join(', ')
+      : body.message ?? 'Request failed';
+
+    if (res.status === 401) {
+      unauthorizedHandler?.();
+    }
+
+    throw new ApiError(res.status, message);
   }
 
   return res.json() as Promise<T>;
@@ -45,17 +70,21 @@ export class ApiError extends Error {
 
 // Auth
 export function register(email: string, password: string, password_confirmation: string) {
-  return request<{ access_token: string; user: { id: string; email: string } }>('/auth/register', {
+  return request<AuthResponse>('/auth/register', {
     method: 'POST',
     body: JSON.stringify({ email, password, password_confirmation }),
   });
 }
 
 export function login(email: string, password: string) {
-  return request<{ access_token: string; user: { id: string; email: string } }>('/auth/login', {
+  return request<AuthResponse>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
+}
+
+export function getMe() {
+  return request<AuthUser>('/auth/me');
 }
 
 // Body Profile

@@ -1,4 +1,13 @@
-import { Pressable, Text, StyleSheet, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import { useState } from 'react';
+import {
+  Pressable,
+  Text,
+  StyleSheet,
+  StyleProp,
+  ViewStyle,
+  TextStyle,
+  Platform,
+} from 'react-native';
 import { uiColors } from './colors';
 
 interface ButtonProps {
@@ -9,13 +18,33 @@ interface ButtonProps {
   textStyle?: StyleProp<TextStyle>;
 }
 
+const webHoverTransition = Platform.select({
+  web: {
+    transitionProperty: 'transform, background-color, border-color',
+    transitionDuration: '50ms',
+    transitionTimingFunction: 'ease-in-out',
+  } as unknown as ViewStyle,
+});
+
 export function Button({ children, onPress, variant = 'primary', style, textStyle }: ButtonProps) {
+  const [isHovered, setIsHovered] = useState(false);
+  const isSecondary = variant === 'secondary';
+
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.base, variant === 'primary' ? styles.primary : styles.secondary, style]}
+      onHoverIn={() => setIsHovered(true)}
+      onHoverOut={() => setIsHovered(false)}
+      style={[
+        styles.base,
+        webHoverTransition,
+        isSecondary ? styles.secondary : styles.primary,
+        isHovered && (isSecondary ? styles.secondaryHover : styles.primaryHover),
+        isHovered && styles.hoverScale,
+        style,
+      ]}
     >
-      <Text style={[styles.text, variant === 'secondary' && styles.textSecondary, textStyle]}>
+      <Text style={[styles.text, isSecondary && styles.textSecondary, textStyle]}>
         {children}
       </Text>
     </Pressable>
@@ -33,14 +62,23 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: uiColors.textOnLight,
   },
+  primaryHover: {
+    backgroundColor: uiColors.buttonHover,
+  },
   secondary: {
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: uiColors.borderStrong,
   },
+  secondaryHover: {
+    backgroundColor: 'rgba(37, 37, 35, 0.1)',
+  },
+  hoverScale: {
+    transform: [{ scale: 1.005 }],
+  },
   text: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '400',
     color: uiColors.textOnDark,
   },
   textSecondary: {

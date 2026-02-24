@@ -1,5 +1,5 @@
 import { View, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Button } from '@repo/ui/button';
 import { ScreenContainer } from '@repo/ui/screen-container';
@@ -7,14 +7,24 @@ import { SectionTitle } from '@repo/ui/section-title';
 import { TextField } from '@repo/ui/text-field';
 import { TextLink } from '@repo/ui/text-link';
 import * as api from '@/services/api';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
   const [chest, setChest] = useState('');
   const [waist, setWaist] = useState('');
   const [hips, setHips] = useState('');
+
+  if (isLoading) {
+    return null;
+  }
+
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)/login" />;
+  }
 
   const handleContinue = async () => {
     try {

@@ -1,5 +1,6 @@
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { uiColors } from './colors';
+import { TextField } from './text-field';
 
 interface ProfileField {
   key: string;
@@ -19,13 +20,12 @@ export function ProfileForm({ fields, onChangeField }: ProfileFormProps) {
     <View style={styles.form}>
       {fields.map((field) => (
         <View key={field.key} style={styles.fieldGroup}>
-          <Text style={styles.label}>{field.label}</Text>
-          <TextInput
-            style={styles.input}
+          <TextField
+            label={field.label}
             value={field.value}
-            onChangeText={(v) => onChangeField(field.key, v)}
             placeholder={field.placeholder}
             keyboardType={field.keyboardType ?? 'default'}
+            onChangeText={(value) => onChangeField(field.key, value)}
           />
         </View>
       ))}
@@ -53,5 +53,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     fontSize: 16,
     backgroundColor: uiColors.surface,
+  },
+  inputHover: {
+    borderColor: uiColors.borderStrong,
   },
 });

@@ -8,9 +8,11 @@ export const uiColors = {
   surfaceMuted: '#f5f5f5',
   surfaceSoft: '#f1f1ef',
 
+  buttonHover: '#101010',
+
   border: '#ddd',
   borderSoft: '#eee',
-  borderStrong: '#4f4f4d',
+  borderStrong: '#bdbcbc',
 
   textPrimary: '#111',
   textAppLight: '#11181C',

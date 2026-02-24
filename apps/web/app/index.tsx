@@ -1,10 +1,20 @@
 import { View, Text, StyleSheet, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { Button } from '@repo/ui/button';
 import { uiColors } from '@repo/ui/colors';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function HomePage() {
   const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return null;
+  }
+
+  if (isAuthenticated) {
+    return <Redirect href="/(tabs)" />;
+  }
 
   return (
     <View style={styles.container}>
