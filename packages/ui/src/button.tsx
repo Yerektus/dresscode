@@ -1,19 +1,20 @@
-import { Pressable, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { Pressable, Text, StyleSheet, StyleProp, ViewStyle, TextStyle } from 'react-native';
 
 interface ButtonProps {
   children: string;
   onPress?: () => void;
   variant?: 'primary' | 'secondary';
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }
 
-export function Button({ children, onPress, variant = 'primary', style }: ButtonProps) {
+export function Button({ children, onPress, variant = 'primary', style, textStyle }: ButtonProps) {
   return (
     <Pressable
       onPress={onPress}
       style={[styles.base, variant === 'primary' ? styles.primary : styles.secondary, style]}
     >
-      <Text style={[styles.text, variant === 'secondary' && styles.textSecondary]}>
+      <Text style={[styles.text, variant === 'secondary' && styles.textSecondary, textStyle]}>
         {children}
       </Text>
     </Pressable>

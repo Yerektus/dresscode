@@ -1,5 +1,7 @@
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Button } from '@repo/ui/button';
+import { TextLink } from '@repo/ui/text-link';
 
 export default function HomePage() {
   const router = useRouter();
@@ -9,9 +11,9 @@ export default function HomePage() {
       <View style={styles.nav}>
         <Text style={styles.logo}>DRESSCODE</Text>
         <View style={styles.navLinks}>
-          <Pressable onPress={() => router.push('/(auth)/login')}>
-            <Text style={styles.navLink}>Sign In</Text>
-          </Pressable>
+          <TextLink onPress={() => router.push('/(auth)/login')} style={styles.navLink}>
+            Sign In
+          </TextLink>
         </View>
       </View>
 
@@ -23,12 +25,9 @@ export default function HomePage() {
         <Text style={styles.subheading}>
           Upload any garment, see how it fits your body, and get instant size recommendations — all powered by AI.
         </Text>
-        <Pressable
-          style={styles.cta}
-          onPress={() => router.push('/(auth)/register')}
-        >
-          <Text style={styles.ctaText}>Get Started Free</Text>
-        </Pressable>
+        <Button onPress={() => router.push('/(auth)/register')}>
+          Get Started Free
+        </Button>
       </View>
     </View>
   );
@@ -96,16 +95,5 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     maxWidth: 560,
     marginBottom: 40,
-  },
-  cta: {
-    backgroundColor: '#111',
-    paddingVertical: 16,
-    paddingHorizontal: 40,
-    borderRadius: 50,
-  },
-  ctaText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });

@@ -1,13 +1,14 @@
-import { Pressable, Text, View, StyleSheet, Platform } from 'react-native';
+import { Pressable, Text, StyleProp, StyleSheet, Platform, ViewStyle } from 'react-native';
 
 interface UploadZoneProps {
   onPickImage?: () => void;
   label?: string;
+  style?: StyleProp<ViewStyle>;
 }
 
-export function UploadZone({ onPickImage, label = 'Upload clothing image' }: UploadZoneProps) {
+export function UploadZone({ onPickImage, label = 'Upload clothing image', style }: UploadZoneProps) {
   return (
-    <Pressable onPress={onPickImage} style={styles.zone}>
+    <Pressable onPress={onPickImage} style={[styles.zone, style]}>
       <Text style={styles.icon}>+</Text>
       <Text style={styles.label}>{label}</Text>
       {Platform.OS === 'web' && (
