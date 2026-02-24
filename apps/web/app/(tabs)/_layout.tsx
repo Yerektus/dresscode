@@ -1,10 +1,39 @@
 import { Redirect, Tabs } from 'expo-router';
 import { Platform } from 'react-native';
+import { useEffect, useState } from 'react';
 import { uiColors } from '@repo/ui/colors';
 import { useAuth } from '@/providers/auth-provider';
 
 export default function TabLayout() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, getPostAuthRoute } = useAuth();
+  const [canAccessMain, setCanAccessMain] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) {
+      setCanAccessMain(null);
+      return;
+    }
+
+    let active = true;
+    const checkMainAccess = async () => {
+      try {
+        const route = await getPostAuthRoute();
+        if (active) {
+          setCanAccessMain(route === '/(tabs)');
+        }
+      } catch {
+        if (active) {
+          setCanAccessMain(false);
+        }
+      }
+    };
+
+    void checkMainAccess();
+
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated, isLoading, getPostAuthRoute]);
 
   if (isLoading) {
     return null;
@@ -12,6 +41,14 @@ export default function TabLayout() {
 
   if (!isAuthenticated) {
     return <Redirect href="/(auth)/login" />;
+  }
+
+  if (canAccessMain === null) {
+    return null;
+  }
+
+  if (!canAccessMain) {
+    return <Redirect href="/onboarding" />;
   }
 
   return (

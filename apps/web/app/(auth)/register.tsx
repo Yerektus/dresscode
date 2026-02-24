@@ -9,7 +9,7 @@ import { useAuth } from '@/providers/auth-provider';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { signUp, getPostAuthRoute } = useAuth();
+  const { signUp } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -17,8 +17,7 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     try {
       await signUp(email, password, confirmPassword);
-      const route = await getPostAuthRoute();
-      router.replace(route);
+      router.replace('/onboarding');
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Registration failed');
     }

@@ -137,6 +137,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const getPostAuthRoute = useCallback(async (): Promise<AuthRoute> => {
     try {
       await api.getBodyProfile();
+      await api.getActiveMannequin();
       return '/(tabs)';
     } catch (error) {
       if (error instanceof api.ApiError && error.status === 404) {
