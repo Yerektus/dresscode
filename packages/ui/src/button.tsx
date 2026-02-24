@@ -1,20 +1,47 @@
-"use client";
-
-import { ReactNode } from "react";
+import { Pressable, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
 
 interface ButtonProps {
-  children: ReactNode;
-  className?: string;
-  appName: string;
+  children: string;
+  onPress?: () => void;
+  variant?: 'primary' | 'secondary';
+  style?: ViewStyle;
 }
 
-export const Button = ({ children, className, appName }: ButtonProps) => {
+export function Button({ children, onPress, variant = 'primary', style }: ButtonProps) {
   return (
-    <button
-      className={className}
-      onClick={() => alert(`Hello from your ${appName} app!`)}
+    <Pressable
+      onPress={onPress}
+      style={[styles.base, variant === 'primary' ? styles.primary : styles.secondary, style]}
     >
-      {children}
-    </button>
+      <Text style={[styles.text, variant === 'secondary' && styles.textSecondary]}>
+        {children}
+      </Text>
+    </Pressable>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  base: {
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primary: {
+    backgroundColor: '#111',
+  },
+  secondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#111',
+  },
+  text: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  textSecondary: {
+    color: '#111',
+  },
+});

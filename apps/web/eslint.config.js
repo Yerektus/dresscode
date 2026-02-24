@@ -1,4 +1,10 @@
-import { nextJsConfig } from "@repo/eslint-config/next-js";
+// https://docs.expo.dev/guides/using-eslint/
+const { defineConfig } = require('eslint/config');
+const expoConfig = require('eslint-config-expo/flat');
 
-/** @type {import("eslint").Linter.Config[]} */
-export default nextJsConfig;
+module.exports = defineConfig([
+  expoConfig,
+  {
+    ignores: ['dist/*'],
+  },
+]);
