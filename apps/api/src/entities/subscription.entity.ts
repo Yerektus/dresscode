@@ -18,7 +18,7 @@ export class Subscription {
   @Column({ type: 'timestamptz', nullable: true })
   current_period_end: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   external_payment_id: string | null;
 
   @Column({ default: 'free' })

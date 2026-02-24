@@ -15,7 +15,7 @@ export class MannequinVersion {
   @Column()
   front_image_url: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   side_image_url: string | null;
 
   @Column({ default: true })
