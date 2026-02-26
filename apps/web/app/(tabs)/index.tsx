@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
     width: '100%',
     borderWidth: 1,
     borderColor: uiColors.border,
-    borderRadius: 999,
+    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: uiColors.surface,
     marginBottom: 20,
