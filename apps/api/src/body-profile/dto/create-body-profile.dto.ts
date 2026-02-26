@@ -39,4 +39,8 @@ export class CreateBodyProfileDto {
   @IsString()
   @IsIn(ALLOWED_GENDERS)
   gender?: (typeof ALLOWED_GENDERS)[number];
+
+  @IsOptional()
+  @IsString()
+  face_image?: string;
 }

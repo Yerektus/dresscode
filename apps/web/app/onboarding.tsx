@@ -1,11 +1,13 @@
-import { View, StyleSheet } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@repo/ui/button';
 import { ScreenContainer } from '@repo/ui/screen-container';
 import { SectionTitle } from '@repo/ui/section-title';
 import { TextLink } from '@repo/ui/text-link';
+import { UploadZone } from '@repo/ui/upload-zone';
 import { WheelPicker, type WheelPickerOption } from '@repo/ui/wheel-picker';
+import * as ImagePicker from 'expo-image-picker';
 import * as api from '@/services/api';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -13,6 +15,25 @@ type BodyGender = 'female' | 'male';
 type BodyShape = api.BodyShape;
 type BodyShapePickerValue = BodyShape | '';
 const BODY_SHAPE_VALUES: BodyShape[] = ['hourglass', 'pear', 'apple', 'rectangle', 'inverted_triangle'];
+const MAX_FACE_IMAGE_BYTES = 25 * 1024 * 1024;
+
+function asDataUri(asset: ImagePicker.ImagePickerAsset): string | null {
+  if (!asset.base64) {
+    return null;
+  }
+
+  const mimeType = asset.mimeType ?? 'image/jpeg';
+  return `data:${mimeType};base64,${asset.base64}`;
+}
+
+function normalizeStoredFaceImage(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
 
 function buildRangeOptions(start: number, end: number): WheelPickerOption[] {
   const options: WheelPickerOption[] = [];
@@ -126,6 +147,9 @@ export default function OnboardingScreen() {
   const [sleeve, setSleeve] = useState('');
   const [inseam, setInseam] = useState('');
   const [bodyShape, setBodyShape] = useState<BodyShapePickerValue>('');
+  const [faceImageUri, setFaceImageUri] = useState<string | null>(null);
+  const [faceImageDataUri, setFaceImageDataUri] = useState<string | null>(null);
+  const [isPickingFaceImage, setIsPickingFaceImage] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
@@ -157,6 +181,9 @@ export default function OnboardingScreen() {
         setBodyShape(
           resolveTextPickerValue(existingBodyProfile.body_shape, bodyShapeOptions, '') as BodyShapePickerValue,
         );
+        const storedFaceImage = normalizeStoredFaceImage(existingBodyProfile.face_image);
+        setFaceImageUri(storedFaceImage);
+        setFaceImageDataUri(storedFaceImage?.startsWith('data:') ? storedFaceImage : null);
       } catch (error) {
         if (!(error instanceof api.ApiError && error.status === 404)) {
           console.error('Failed to preload body profile for onboarding', error);
@@ -221,6 +248,55 @@ export default function OnboardingScreen() {
     }
   };
 
+  const handlePickFaceImage = async () => {
+    if (isPickingFaceImage || isGenerating) {
+      return;
+    }
+
+    try {
+      setIsPickingFaceImage(true);
+
+      if (Platform.OS !== 'web') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          alert('Allow photo library access to upload face image');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        base64: true,
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (result.canceled || !result.assets.length) {
+        return;
+      }
+
+      const nextAsset = result.assets[0];
+      if (typeof nextAsset.fileSize === 'number' && nextAsset.fileSize > MAX_FACE_IMAGE_BYTES) {
+        alert('Face image must be up to 25 MB');
+        return;
+      }
+
+      const nextUri = nextAsset?.uri ?? null;
+      const nextDataUri = nextAsset ? asDataUri(nextAsset) : null;
+      if (!nextUri || !nextDataUri) {
+        alert('Failed to process selected face image. Try another one.');
+        return;
+      }
+
+      setFaceImageUri(nextUri);
+      setFaceImageDataUri(nextDataUri);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to pick image');
+    } finally {
+      setIsPickingFaceImage(false);
+    }
+  };
+
   if (isLoading) {
     return null;
   }
@@ -230,7 +306,7 @@ export default function OnboardingScreen() {
   }
 
   const handleContinue = async () => {
-    if (isGenerating) {
+    if (isGenerating || isPickingFaceImage) {
       return;
     }
 
@@ -247,6 +323,12 @@ export default function OnboardingScreen() {
       return;
     }
 
+    const persistedFaceImage =
+      faceImageDataUri ??
+      (faceImageUri && (faceImageUri.startsWith('https://') || faceImageUri.startsWith('data:'))
+        ? faceImageUri
+        : null);
+
     try {
       setIsGenerating(true);
       await api.saveBodyProfile({
@@ -259,6 +341,7 @@ export default function OnboardingScreen() {
         ...(sleeve ? { sleeve_cm: parseFloat(sleeve) } : {}),
         ...(inseam ? { inseam_cm: parseFloat(inseam) } : {}),
         ...(bodyShape ? { body_shape: bodyShape } : {}),
+        ...(persistedFaceImage ? { face_image: persistedFaceImage } : {}),
       });
       const generatedMannequin = await api.generateMannequin();
       router.replace({
@@ -371,8 +454,20 @@ export default function OnboardingScreen() {
         </View>
       </View>
 
-      <Button style={styles.cta} onPress={handleContinue} loading={isGenerating}>
-        {isGenerating ? 'Generating mannequin...' : 'Generate mannequin'}
+      <View style={styles.faceUploadSection}>
+        <UploadZone
+          onPickImage={() => {
+            void handlePickFaceImage();
+          }}
+          previewUri={faceImageUri}
+          label={isPickingFaceImage ? 'Opening gallery...' : 'Face photo (optional)'}
+          details="Helps preserve facial identity\nJPG, PNG, HEIC, up to 25 MB"
+          style={styles.faceUploadZone}
+        />
+      </View>
+
+      <Button style={styles.cta} onPress={handleContinue} loading={isGenerating} disabled={isPickingFaceImage}>
+        {isGenerating ? 'Generating mannequin...' : isPickingFaceImage ? 'Opening gallery...' : 'Generate mannequin'}
       </Button>
     </ScreenContainer>
   );
@@ -391,6 +486,15 @@ const styles = StyleSheet.create({
   },
   pickerField: {
     flex: 1,
+  },
+  faceUploadSection: {
+    width: '100%',
+    marginTop: -6,
+    marginBottom: 8,
+  },
+  faceUploadZone: {
+    width: '100%',
+    minHeight: 220,
   },
   cta: {
     marginTop: 16,

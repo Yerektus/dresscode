@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MannequinVersion } from '../entities/mannequin-version.entity';
@@ -29,8 +34,16 @@ export class MannequinService {
     process.env.WAVESPEED_MODEL_PATH,
     process.env.WAVESPEED_MODEL_FALLBACK_PATHS,
   );
+  private readonly waveSpeedFaceModelPaths = this.buildModelPathCandidates(
+    process.env.WAVESPEED_MANNEQUIN_FACE_MODEL_PATH,
+    process.env.WAVESPEED_MANNEQUIN_FACE_MODEL_FALLBACK_PATHS,
+    [],
+  );
   private readonly waveSpeedImageSize = this.normalizeImageSize(
     process.env.WAVESPEED_IMAGE_SIZE ?? '1024*1536',
+  );
+  private readonly waveSpeedImageAspectRatio = this.resolveAspectRatioFromImageSize(
+    this.waveSpeedImageSize,
   );
   private readonly waveSpeedPollIntervalMs = this.parsePositiveInt(
     process.env.WAVESPEED_POLL_INTERVAL_MS,
@@ -60,7 +73,12 @@ export class MannequinService {
     const profile = await this.bodyProfileRepo.findOne({ where: { user_id: userId } });
     if (!profile) throw new NotFoundException('Body profile not found. Complete onboarding first.');
 
-    const generatedImageUrl = await this.generateMannequinImage(profile);
+    const normalizedFaceImage = profile.face_image
+      ? this.normalizeWaveSpeedImageInput(profile.face_image, 'Face image')
+      : null;
+    const generatedImageUrl = normalizedFaceImage
+      ? await this.generateMannequinImageWithFace(profile, normalizedFaceImage)
+      : await this.generateMannequinImage(profile);
 
     // Deactivate previous versions
     await this.repo.update({ user_id: userId, is_active: true }, { is_active: false });
@@ -74,6 +92,7 @@ export class MannequinService {
         waist_cm: profile.waist_cm,
         hips_cm: profile.hips_cm,
         gender: profile.gender,
+        face_image_used: Boolean(normalizedFaceImage),
       },
       front_image_url: generatedImageUrl,
       side_image_url: null,
@@ -103,26 +122,85 @@ export class MannequinService {
     );
   }
 
+  private async generateMannequinImageWithFace(
+    profile: BodyProfile,
+    faceImage: string,
+  ): Promise<string> {
+    if (this.waveSpeedFaceModelPaths.length === 0) {
+      throw new ServiceUnavailableException(
+        'WAVESPEED_MANNEQUIN_FACE_MODEL_PATH is required when face image is provided',
+      );
+    }
+
+    let lastModelError: string | null = null;
+    for (const modelPath of this.waveSpeedFaceModelPaths) {
+      try {
+        return await this.generateMannequinImageWithFaceModel(profile, faceImage, modelPath);
+      } catch (error) {
+        if (!this.isModelMissingError(error)) {
+          throw error;
+        }
+
+        lastModelError = this.extractErrorText(error);
+      }
+    }
+
+    throw new ServiceUnavailableException(
+      `WaveSpeed face-aware mannequin generation failed for all configured models. Last error: ${lastModelError ?? 'unknown'}`,
+    );
+  }
+
   private async generateMannequinImageWithModel(
     profile: BodyProfile,
     modelPath: string,
+  ): Promise<string> {
+    return this.runMannequinGeneration(modelPath, {
+      prompt: this.buildCinematicPrompt(profile),
+      size: this.waveSpeedImageSize,
+      seed: -1,
+      enable_prompt_expansion: true,
+      enable_base64_output: false,
+    });
+  }
+
+  private async generateMannequinImageWithFaceModel(
+    profile: BodyProfile,
+    faceImage: string,
+    modelPath: string,
+  ): Promise<string> {
+    const payloadCandidates = this.buildFacePayloadCandidates(profile, faceImage);
+    let lastPayloadError: string | null = null;
+
+    for (const payload of payloadCandidates) {
+      try {
+        return await this.runMannequinGeneration(modelPath, payload);
+      } catch (error) {
+        lastPayloadError = this.extractErrorText(error);
+        if (!this.isPayloadSchemaError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    throw new ServiceUnavailableException(
+      `WaveSpeed face-aware request failed for model "${modelPath}". Last error: ${lastPayloadError ?? 'unknown'}`,
+    );
+  }
+
+  private async runMannequinGeneration(
+    modelPath: string,
+    payload: Record<string, unknown>,
   ): Promise<string> {
     const submitPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
       this.resolveWaveSpeedUrl(modelPath),
       {
         method: 'POST',
-        body: JSON.stringify({
-          prompt: this.buildCinematicPrompt(profile),
-          size: this.waveSpeedImageSize,
-          seed: -1,
-          enable_prompt_expansion: true,
-          enable_base64_output: false,
-        }),
+        body: JSON.stringify(payload),
       },
     );
 
     const submission = this.normalizePrediction(submitPayload);
-    const immediateImage = this.extractImageUrl(submission.outputs);
+    const immediateImage = this.extractImageUrl(submission.outputs) ?? this.extractImageUrl(submission.urls);
     if (this.isCompletedStatus(submission.status) && immediateImage) {
       return immediateImage;
     }
@@ -149,7 +227,7 @@ export class MannequinService {
       );
 
       const result = this.normalizePrediction(resultPayload);
-      const imageUrl = this.extractImageUrl(result.outputs);
+      const imageUrl = this.extractImageUrl(result.outputs) ?? this.extractImageUrl(result.urls);
 
       if (this.isCompletedStatus(result.status)) {
         if (imageUrl) {
@@ -202,6 +280,51 @@ export class MannequinService {
     ]
       .join(' ')
       .trim();
+  }
+
+  private buildFaceAwareCinematicPrompt(profile: BodyProfile): string {
+    return [
+      this.buildCinematicPrompt(profile),
+      'Use the provided face reference image to preserve the same facial identity.',
+      'Keep face structure, eyes, nose, lips, and skin tone aligned with the reference.',
+      'Do not alter pose, framing intent, or full-body composition.',
+      'No text, no watermark, no logo, no labels.',
+    ].join(' ');
+  }
+
+  private buildFacePayloadCandidates(
+    profile: BodyProfile,
+    faceImage: string,
+  ): Array<Record<string, unknown>> {
+    const prompt = this.buildFaceAwareCinematicPrompt(profile);
+
+    return [
+      {
+        prompt,
+        images: [faceImage],
+        aspect_ratio: this.waveSpeedImageAspectRatio,
+        output_format: 'jpeg',
+      },
+      {
+        prompt,
+        images: [faceImage],
+      },
+      {
+        prompt,
+        images: [faceImage],
+        size: this.waveSpeedImageSize,
+      },
+      {
+        prompt,
+        image: faceImage,
+        size: this.waveSpeedImageSize,
+      },
+      {
+        prompt,
+        reference_images: [faceImage],
+        size: this.waveSpeedImageSize,
+      },
+    ];
   }
 
   private async waveSpeedRequest<T>(url: string, init: RequestInit): Promise<T> {
@@ -328,6 +451,16 @@ export class MannequinService {
     return !normalized && Boolean(error);
   }
 
+  private isPayloadSchemaError(error: unknown): boolean {
+    const message = this.extractErrorText(error).toLowerCase();
+    return (
+      message.includes('validation') ||
+      message.includes('invalid') ||
+      message.includes('required') ||
+      message.includes('missing')
+    );
+  }
+
   private tryParseJson(payload: string): unknown {
     if (!payload.trim()) {
       return null;
@@ -415,14 +548,13 @@ export class MannequinService {
   private buildModelPathCandidates(
     primaryPath: string | undefined,
     fallbackPaths: string | undefined,
-  ): string[] {
-    const defaults = [
+    defaults: string[] = [
       'bytedance/seedream-v3.1',
       'bytedance/seedream-v4',
       'bytedance/seedream-v4.5',
       'wavespeed-ai/flux-2-dev/text-to-image',
-    ];
-
+    ],
+  ): string[] {
     const envCandidates = [primaryPath, ...(fallbackPaths?.split(',') ?? [])].flatMap((value) =>
       this.expandModelPathCandidate(value),
     );
@@ -488,6 +620,77 @@ export class MannequinService {
   private normalizeImageSize(value: string): string {
     const normalized = value.trim().replace(/[xX]/g, '*');
     return normalized || '1024*1536';
+  }
+
+  private resolveAspectRatioFromImageSize(size: string): string {
+    const supported = new Set(['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']);
+    const match = size.match(/^(\d+)\*(\d+)$/);
+    if (!match) {
+      return '2:3';
+    }
+
+    const width = Number.parseInt(match[1] ?? '', 10);
+    const height = Number.parseInt(match[2] ?? '', 10);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return '2:3';
+    }
+
+    const divisor = this.gcd(width, height);
+    const ratio = `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+    if (supported.has(ratio)) {
+      return ratio;
+    }
+
+    return width >= height ? '3:2' : '2:3';
+  }
+
+  private gcd(a: number, b: number): number {
+    let left = Math.abs(a);
+    let right = Math.abs(b);
+
+    while (right !== 0) {
+      const temp = right;
+      right = left % right;
+      left = temp;
+    }
+
+    return left || 1;
+  }
+
+  private normalizeWaveSpeedImageInput(value: string, fieldName: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+
+    if (trimmed.startsWith('data:')) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('//')) {
+      return `https:${trimmed}`;
+    }
+
+    const domainLikeValue = /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed);
+    if (domainLikeValue) {
+      return `https://${trimmed}`;
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === 'https:') {
+        return parsed.toString();
+      }
+
+      if (parsed.protocol === 'http:') {
+        parsed.protocol = 'https:';
+        return parsed.toString();
+      }
+    } catch {
+      // Fall through to validation error below.
+    }
+
+    throw new BadRequestException(`${fieldName} must be a valid HTTPS URL or a Data URI`);
   }
 
   private isModelMissingError(error: unknown): boolean {

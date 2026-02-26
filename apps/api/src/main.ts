@@ -3,6 +3,7 @@ import { resolve } from 'path';
 import { config as dotenvConfig } from 'dotenv';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -24,6 +25,10 @@ loadEnv();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const bodyLimit = process.env.API_BODY_LIMIT ?? '10mb';
+
+  app.use(json({ limit: bodyLimit }));
+  app.use(urlencoded({ extended: true, limit: bodyLimit }));
 
   app.use(helmet());
   app.enableCors({

@@ -30,6 +30,7 @@ export interface BodyProfileResponse {
   inseam_cm?: number | null;
   body_shape?: BodyShape | null;
   gender?: BodyGender | null;
+  face_image?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -210,6 +211,7 @@ export function saveBodyProfile(data: {
   inseam_cm?: number;
   body_shape?: string;
   gender?: BodyGender;
+  face_image?: string;
 }) {
   return request('/body-profile', {
     method: 'POST',
