@@ -54,6 +54,33 @@ export interface SubscriptionResponse {
   updated_at: string;
 }
 
+export interface TryOnRequestResponse {
+  id: string;
+  user_id: string;
+  mannequin_version_id: string;
+  garment_image_url: string;
+  category: string;
+  selected_size: string;
+  chest_cm: number | null;
+  waist_cm: number | null;
+  hips_cm: number | null;
+  created_at: string;
+}
+
+export interface TryOnResultResponse {
+  id: string;
+  request_id: string;
+  result_image_url: string;
+  fit_probability: number;
+  fit_breakdown_json: Record<string, number> | null;
+  model_version: string;
+  created_at: string;
+}
+
+export interface TryOnHistoryItemResponse extends TryOnRequestResponse {
+  result: TryOnResultResponse | null;
+}
+
 export function setAuthToken(token: string | null) {
   authToken = token;
 }
@@ -207,12 +234,13 @@ export function createTryOn(data: {
   category: string;
   selected_size: string;
   mannequin_version_id: string;
+  chest_cm?: number;
+  waist_cm?: number;
+  hips_cm?: number;
 }) {
   return request<{
-    request_id: string;
-    result_image_url: string;
-    fit_probability: number;
-    fit_breakdown_json: Record<string, number> | null;
+    request: TryOnRequestResponse;
+    result: TryOnResultResponse;
   }>('/tryon', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -220,16 +248,11 @@ export function createTryOn(data: {
 }
 
 export function getTryOnHistory() {
-  return request<Array<{
-    id: string;
-    category: string;
-    selected_size: string;
-    created_at: string;
-    result: {
-      result_image_url: string;
-      fit_probability: number;
-    };
-  }>>('/tryon/history');
+  return request<TryOnHistoryItemResponse[]>('/tryon/history');
+}
+
+export function getTryOnById(requestId: string) {
+  return request<TryOnHistoryItemResponse>(`/tryon/${requestId}`);
 }
 
 // Subscription

@@ -7,11 +7,21 @@ interface HistoryCardProps {
   size: string;
   fitProbability: number;
   date: string;
+  measurements?: string;
   onPress?: () => void;
 }
 
-export function HistoryCard({ title, category, size, fitProbability, date, onPress }: HistoryCardProps) {
+export function HistoryCard({
+  title,
+  category,
+  size,
+  fitProbability,
+  date,
+  measurements,
+  onPress,
+}: HistoryCardProps) {
   const fitColor = fitProbability >= 80 ? uiColors.success : uiColors.warning;
+  const metaParts = [category, size, measurements, date].filter((part): part is string => Boolean(part));
 
   return (
     <Pressable onPress={onPress} style={styles.card}>
@@ -19,7 +29,7 @@ export function HistoryCard({ title, category, size, fitProbability, date, onPre
         <Text style={styles.title}>{title}</Text>
         <Text style={[styles.badge, { color: fitColor }]}>{fitProbability}%</Text>
       </View>
-      <Text style={styles.meta}>{category} · {size} · {date}</Text>
+      <Text style={styles.meta}>{metaParts.join(' · ')}</Text>
     </Pressable>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { AlertModal, type AlertModalAction } from '@repo/ui/alert-modal';
 import { Avatar } from '@repo/ui/avatar';
 import { BodyMetricCard } from '@repo/ui/body-metric-card';
@@ -43,6 +44,13 @@ const DEFAULT_SETTINGS_NAV_ITEM: SettingsNavItem = 'Profile';
 const MANNEQUIN_LEFT_METRIC_KEYS = ['gender', 'chest', 'waist', 'sleeve'] as const;
 const MANNEQUIN_RIGHT_METRIC_KEYS = ['height', 'weight', 'hips', 'inseam'] as const;
 const MANNEQUIN_CENTER_METRIC_KEY = 'body_shape';
+const BILLING_FEATURES = [
+  'More try-ons per purchase',
+  'Fast virtual fitting',
+  'Result history',
+  'Private wardrobe workflow',
+  'Pay only when you need',
+] as const;
 const webSidebarTransition = Platform.select({
   web: {
     transitionProperty: 'background-color, transform',
@@ -125,7 +133,6 @@ export default function SettingsScreen() {
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [isBuyingCredits, setIsBuyingCredits] = useState(false);
-  const [isRefreshingCredits, setIsRefreshingCredits] = useState(false);
   const [alertState, setAlertState] = useState<SettingsAlertState | null>(null);
   const [activeNavItem, setActiveNavItem] = useState<SettingsNavItem>(DEFAULT_SETTINGS_NAV_ITEM);
 
@@ -181,6 +188,32 @@ export default function SettingsScreen() {
       active = false;
     };
   }, [updateCurrentUser]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (activeNavItem !== 'Billing' || isInitialLoading) {
+        return;
+      }
+
+      let active = true;
+      const refreshSubscription = async () => {
+        try {
+          const nextSubscription = await api.getSubscription();
+          if (active) {
+            setSubscription(nextSubscription);
+          }
+        } catch {
+          // Keep this silent to avoid interrupting users when returning from checkout.
+        }
+      };
+
+      void refreshSubscription();
+
+      return () => {
+        active = false;
+      };
+    }, [activeNavItem, isInitialLoading]),
+  );
 
   const bodyMetricCards = useMemo<BodyMetricItem[]>(
     () => [
@@ -514,56 +547,58 @@ export default function SettingsScreen() {
   );
   const billingTabContent = (
     <View style={styles.section}>
-      <SectionTitle>Credits</SectionTitle>
-      <View style={styles.creditsCard}>
-        <Text style={styles.creditsLabel}>Current balance</Text>
-        <Text style={styles.creditsValue}>{creditBalanceLabel}</Text>
-        <Text style={styles.creditsPackText}>
-          Package: {creditPack.credits} credits — ${creditPack.price_usd}
-        </Text>
+      <View style={styles.subscriptionCard}>
+        <View style={styles.subscriptionMain}>
+          <View style={styles.planInfo}>
+            <Text style={styles.planTitle}>Pro</Text>
+            <Text style={styles.planSubtitle}>Credits for virtual try-on</Text>
+          </View>
+
+          <View style={styles.priceRow}>
+            <Text style={styles.priceValue}>${creditPack.price_usd}</Text>
+            <Text style={styles.priceSuffix}>/ {creditPack.credits} credits</Text>
+          </View>
+
+          <Text style={styles.balanceText}>Current balance: {creditBalanceLabel}</Text>
+
+          <Button
+            style={styles.billingCta}
+            onPress={() => {
+              void (async () => {
+                try {
+                  setIsBuyingCredits(true);
+                  const payment = await api.createPayment('credits_50');
+                  await Linking.openURL(payment.payment_url);
+                  showInfoAlert(
+                    'Payment started',
+                    'Complete payment in checkout. Balance updates automatically when you return.',
+                  );
+                } catch (error) {
+                  showInfoAlert('Error', error instanceof Error ? error.message : 'Failed to create payment');
+                } finally {
+                  setIsBuyingCredits(false);
+                }
+              })();
+            }}
+            loading={isBuyingCredits}
+            disabled={isInitialLoading || isBuyingCredits}
+          >
+            Buy credits
+          </Button>
+        </View>
+
+        <View style={styles.planDivider} />
+
+        <View style={styles.featuresBlock}>
+          <Text style={styles.featuresTitle}>Everything included:</Text>
+          {BILLING_FEATURES.map((feature) => (
+            <View key={feature} style={styles.featureItem}>
+              <Text style={styles.featureCheck}>✓</Text>
+              <Text style={styles.featureText}>{feature}</Text>
+            </View>
+          ))}
+        </View>
       </View>
-      <Button
-        onPress={() => {
-          void (async () => {
-            try {
-              setIsBuyingCredits(true);
-              const payment = await api.createPayment('credits_50');
-              await Linking.openURL(payment.payment_url);
-              showInfoAlert('Payment started', 'Complete payment and then tap "Refresh balance".');
-            } catch (error) {
-              showInfoAlert('Error', error instanceof Error ? error.message : 'Failed to create payment');
-            } finally {
-              setIsBuyingCredits(false);
-            }
-          })();
-        }}
-        loading={isBuyingCredits}
-        disabled={isInitialLoading || isBuyingCredits}
-      >
-        Buy
-      </Button>
-      <Button
-        variant="secondary"
-        style={styles.refreshCreditsButton}
-        onPress={() => {
-          void (async () => {
-            try {
-              setIsRefreshingCredits(true);
-              const nextSubscription = await api.getSubscription();
-              setSubscription(nextSubscription);
-              showInfoAlert('Updated', 'Credit balance refreshed');
-            } catch (error) {
-              showInfoAlert('Error', error instanceof Error ? error.message : 'Failed to refresh balance');
-            } finally {
-              setIsRefreshingCredits(false);
-            }
-          })();
-        }}
-        loading={isRefreshingCredits}
-        disabled={isInitialLoading || isRefreshingCredits}
-      >
-        Refresh balance
-      </Button>
     </View>
   );
 
@@ -749,38 +784,95 @@ const styles = StyleSheet.create({
     width: 0,
     marginBottom: 0,
   },
-  creditsCard: {
+  subscriptionCard: {
+    width: '100%',
     backgroundColor: uiColors.surface,
     borderWidth: 1,
     borderColor: uiColors.borderSoft,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 12,
+    borderRadius: 22,
+    overflow: 'hidden',
   },
-  creditsLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: uiColors.textMuted,
-    marginBottom: 4,
+  subscriptionMain: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 20,
   },
-  creditsValue: {
-    fontSize: 48,
+  planInfo: {
+    marginTop: 4,
+  },
+  planTitle: {
+    fontSize: 50,
+    lineHeight: 50,
     fontFamily: "Georgia, 'Times New Roman', serif",
     color: uiColors.textPrimary,
-    marginBottom: 8,
   },
-  creditsPackText: {
-    fontSize: 15,
-    color: uiColors.textDark,
-    marginBottom: 10,
+  planSubtitle: {
+    marginTop: 8,
+    fontSize: 18,
+    color: uiColors.textSecondary,
   },
-  creditsInfoNote: {
-    fontSize: 13,
+  priceRow: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  priceValue: {
+    fontSize: 46,
+    lineHeight: 48,
+    fontFamily: "Georgia, 'Times New Roman', serif",
+    color: uiColors.textPrimary,
+  },
+  priceSuffix: {
+    fontSize: 22,
+    lineHeight: 30,
+    color: uiColors.textSecondary,
+    marginBottom: 4,
+  },
+  balanceText: {
+    marginTop: 12,
+    fontSize: 14,
     color: uiColors.textMuted,
-    lineHeight: 20,
   },
-  refreshCreditsButton: {
-    marginTop: 10,
+  billingCta: {
+    width: '100%',
+    marginTop: 20,
+    borderRadius: 16,
+    paddingVertical: 14,
+  },
+  planDivider: {
+    borderTopWidth: 1,
+    borderTopColor: uiColors.borderSoft,
+  },
+  featuresBlock: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 18,
+    gap: 10,
+  },
+  featuresTitle: {
+    fontSize: 28,
+    lineHeight: 32,
+    fontFamily: "Georgia, 'Times New Roman', serif",
+    color: uiColors.textPrimary,
+    marginBottom: 2,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  featureCheck: {
+    fontSize: 16,
+    color: uiColors.textSecondary,
+    width: 14,
+    textAlign: 'center',
+  },
+  featureText: {
+    fontSize: 16,
+    color: uiColors.textDark,
+    flexShrink: 1,
   },
   mannequinDesktopLayout: {
     flexDirection: 'row',

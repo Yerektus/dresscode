@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Request, Param, ParseUUIDPipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TryOnService } from './tryon.service';
 import { CreateTryOnDto } from './dto/create-tryon.dto';
@@ -19,5 +19,13 @@ export class TryOnController {
   @Get('history')
   getHistory(@Request() req: { user: { id: string } }) {
     return this.service.getHistory(req.user.id);
+  }
+
+  @Get(':requestId')
+  getById(
+    @Request() req: { user: { id: string } },
+    @Param('requestId', new ParseUUIDPipe()) requestId: string,
+  ) {
+    return this.service.getById(req.user.id, requestId);
   }
 }

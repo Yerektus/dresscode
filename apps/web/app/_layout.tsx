@@ -47,6 +47,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="onboarding-result" />
+        <Stack.Screen name="tryon-result" />
       </Stack>
     </AuthProvider>
   );

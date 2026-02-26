@@ -23,6 +23,15 @@ export class TryOnRequest {
   @Column()
   selected_size: string;
 
+  @Column('decimal', { precision: 5, scale: 1, nullable: true })
+  chest_cm: number | null;
+
+  @Column('decimal', { precision: 5, scale: 1, nullable: true })
+  waist_cm: number | null;
+
+  @Column('decimal', { precision: 5, scale: 1, nullable: true })
+  hips_cm: number | null;
+
   @CreateDateColumn()
   created_at: Date;
 
