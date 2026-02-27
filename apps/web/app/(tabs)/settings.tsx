@@ -51,6 +51,15 @@ const BILLING_FEATURES = [
   'Private wardrobe workflow',
   'Pay only when you need',
 ] as const;
+const DEFAULT_CREDIT_PACKAGES: {
+  code: api.CreditPackageCode;
+  credits: number;
+  price_kzt: number;
+}[] = [
+  { code: 'credits_20', credits: 20, price_kzt: 2000 },
+  { code: 'credits_50', credits: 50, price_kzt: 5000 },
+  { code: 'credits_100', credits: 100, price_kzt: 10000 },
+];
 const webSidebarTransition = Platform.select({
   web: {
     transitionProperty: 'background-color, transform',
@@ -113,6 +122,12 @@ function formatTextMetric(value: string | null | undefined): string {
   return toTitleCase(value);
 }
 
+function formatKzt(value: number): string {
+  return new Intl.NumberFormat('ru-RU', {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
@@ -135,6 +150,7 @@ export default function SettingsScreen() {
   const [isBuyingCredits, setIsBuyingCredits] = useState(false);
   const [alertState, setAlertState] = useState<SettingsAlertState | null>(null);
   const [activeNavItem, setActiveNavItem] = useState<SettingsNavItem>(DEFAULT_SETTINGS_NAV_ITEM);
+  const [selectedCreditPackageCode, setSelectedCreditPackageCode] = useState<api.CreditPackageCode>('credits_50');
 
   useEffect(() => {
     let active = true;
@@ -214,6 +230,16 @@ export default function SettingsScreen() {
       };
     }, [activeNavItem, isInitialLoading]),
   );
+
+  useEffect(() => {
+    const availablePackages = subscription?.credit_packs?.length
+      ? subscription.credit_packs
+      : DEFAULT_CREDIT_PACKAGES;
+
+    if (!availablePackages.some((pack) => pack.code === selectedCreditPackageCode)) {
+      setSelectedCreditPackageCode('credits_50');
+    }
+  }, [selectedCreditPackageCode, subscription]);
 
   const bodyMetricCards = useMemo<BodyMetricItem[]>(
     () => [
@@ -393,11 +419,13 @@ export default function SettingsScreen() {
   const creditBalanceLabel = subscription
     ? `${subscription.credits_balance} credits`
     : 'Unable to load balance';
-  const creditPack = subscription?.credit_pack ?? {
-    code: 'credits_50',
-    credits: 50,
-    price_usd: 3,
-  };
+  const creditPackages = subscription?.credit_packs?.length
+    ? subscription.credit_packs
+    : DEFAULT_CREDIT_PACKAGES;
+  const selectedCreditPack =
+    creditPackages.find((pack) => pack.code === selectedCreditPackageCode) ??
+    creditPackages.find((pack) => pack.code === 'credits_50') ??
+    creditPackages[0];
   const isDesktopWeb = Platform.OS === 'web' && width >= 1024;
   const profileTabContent = (
     <>
@@ -555,11 +583,34 @@ export default function SettingsScreen() {
           </View>
 
           <View style={styles.priceRow}>
-            <Text style={styles.priceValue}>${creditPack.price_usd}</Text>
-            <Text style={styles.priceSuffix}>/ {creditPack.credits} credits</Text>
+            <Text style={styles.priceValue}>₸{formatKzt(selectedCreditPack.price_kzt)}</Text>
+            <Text style={styles.priceSuffix}>/ {selectedCreditPack.credits} credits</Text>
           </View>
 
           <Text style={styles.balanceText}>Current balance: {creditBalanceLabel}</Text>
+          <Text style={styles.balanceHint}>1 credit = 100 KZT</Text>
+
+          <View style={styles.packageSelector}>
+            {creditPackages.map((pack) => {
+              const isSelected = pack.code === selectedCreditPack.code;
+
+              return (
+                <Pressable
+                  key={pack.code}
+                  onPress={() => setSelectedCreditPackageCode(pack.code)}
+                  style={[styles.packageOption, isSelected && styles.packageOptionActive]}
+                >
+                  <Text style={[styles.packageCredits, isSelected && styles.packageCreditsActive]}>
+                    {pack.credits}
+                  </Text>
+                  <Text style={[styles.packageUnit, isSelected && styles.packageUnitActive]}>credits</Text>
+                  <Text style={[styles.packagePrice, isSelected && styles.packagePriceActive]}>
+                    ₸{formatKzt(pack.price_kzt)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
           <Button
             style={styles.billingCta}
@@ -567,11 +618,13 @@ export default function SettingsScreen() {
               void (async () => {
                 try {
                   setIsBuyingCredits(true);
-                  const payment = await api.createPayment('credits_50');
+                  const payment = await api.createPayment(selectedCreditPack.code);
                   await Linking.openURL(payment.payment_url);
                   showInfoAlert(
                     'Payment started',
-                    'Complete payment in checkout. Balance updates automatically when you return.',
+                    `Complete payment for ${payment.credits} credits (₸${formatKzt(
+                      payment.price_kzt,
+                    )}) in checkout. Balance updates automatically when you return.`,
                   );
                 } catch (error) {
                   showInfoAlert('Error', error instanceof Error ? error.message : 'Failed to create payment');
@@ -583,7 +636,7 @@ export default function SettingsScreen() {
             loading={isBuyingCredits}
             disabled={isInitialLoading || isBuyingCredits}
           >
-            Buy credits
+            {`Buy ${selectedCreditPack.credits} credits`}
           </Button>
         </View>
 
@@ -834,6 +887,60 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: uiColors.textMuted,
+  },
+  balanceHint: {
+    marginTop: 4,
+    fontSize: 13,
+    color: uiColors.textSecondary,
+  },
+  packageSelector: {
+    marginTop: 18,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  packageOption: {
+    flexBasis: 160,
+    flexGrow: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: uiColors.borderSoft,
+    borderRadius: 18,
+    backgroundColor: uiColors.surfaceMuted,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 4,
+  },
+  packageOptionActive: {
+    backgroundColor: uiColors.textPrimary,
+    borderColor: uiColors.textPrimary,
+  },
+  packageCredits: {
+    fontSize: 28,
+    lineHeight: 30,
+    fontFamily: "Georgia, 'Times New Roman', serif",
+    color: uiColors.textPrimary,
+  },
+  packageCreditsActive: {
+    color: uiColors.surface,
+  },
+  packageUnit: {
+    fontSize: 13,
+    color: uiColors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  packageUnitActive: {
+    color: 'rgba(255,255,255,0.72)',
+  },
+  packagePrice: {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    color: uiColors.textDark,
+  },
+  packagePriceActive: {
+    color: uiColors.surface,
   },
   billingCta: {
     width: '100%',

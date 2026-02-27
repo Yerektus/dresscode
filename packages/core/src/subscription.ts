@@ -1,12 +1,12 @@
 export type SubscriptionStatus = 'active' | 'cancelled' | 'expired' | 'pending';
 export type PlanCode = 'free' | 'premium';
 export type BillingMode = 'credits_only';
-export type CreditPackageCode = 'credits_50';
+export type CreditPackageCode = 'credits_20' | 'credits_50' | 'credits_100';
 
 export interface CreditPackDto {
   code: CreditPackageCode;
   credits: number;
-  price_usd: number;
+  price_kzt: number;
 }
 
 export interface SubscriptionDto {
@@ -19,6 +19,7 @@ export interface SubscriptionDto {
   plan_code: PlanCode;
   credits_balance: number;
   credit_pack: CreditPackDto;
+  credit_packs: CreditPackDto[];
   billing_mode: BillingMode;
   premium_deprecated: true;
   created_at: string;
@@ -33,7 +34,7 @@ export interface PaymentResponseDto {
   payment_url: string;
   external_payment_id: string;
   credits: number;
-  price_usd: number;
+  price_kzt: number;
 }
 
 export interface WebkassaWebhookDto {

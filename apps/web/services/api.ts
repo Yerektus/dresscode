@@ -1,7 +1,7 @@
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
 export type BodyGender = 'female' | 'male';
 export type BodyShape = 'hourglass' | 'pear' | 'apple' | 'rectangle' | 'inverted_triangle';
-export type CreditPackageCode = 'credits_50';
+export type CreditPackageCode = 'credits_20' | 'credits_50' | 'credits_100';
 
 let authToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
@@ -47,8 +47,13 @@ export interface SubscriptionResponse {
   credit_pack: {
     code: CreditPackageCode;
     credits: number;
-    price_usd: number;
+    price_kzt: number;
   };
+  credit_packs: Array<{
+    code: CreditPackageCode;
+    credits: number;
+    price_kzt: number;
+  }>;
   billing_mode: 'credits_only';
   premium_deprecated: true;
   created_at: string;
@@ -263,7 +268,7 @@ export function getSubscription() {
 }
 
 export function createPayment(package_code: CreditPackageCode) {
-  return request<{ payment_url: string; external_payment_id: string; credits: number; price_usd: number }>(
+  return request<{ payment_url: string; external_payment_id: string; credits: number; price_kzt: number }>(
     '/subscription/create-payment',
     {
       method: 'POST',

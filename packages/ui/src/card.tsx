@@ -11,6 +11,18 @@ interface HistoryCardProps {
   onPress?: () => void;
 }
 
+function getFitLabel(fitProbability: number): 'Tight' | 'True Fit' | 'Loose' {
+  if (fitProbability <= 33) {
+    return 'Tight';
+  }
+
+  if (fitProbability >= 67) {
+    return 'Loose';
+  }
+
+  return 'True Fit';
+}
+
 export function HistoryCard({
   title,
   category,
@@ -20,14 +32,15 @@ export function HistoryCard({
   measurements,
   onPress,
 }: HistoryCardProps) {
-  const fitColor = fitProbability >= 80 ? uiColors.success : uiColors.warning;
+  const fitLabel = getFitLabel(fitProbability);
+  const fitColor = fitLabel === 'True Fit' ? uiColors.success : uiColors.warning;
   const metaParts = [category, size, measurements, date].filter((part): part is string => Boolean(part));
 
   return (
     <Pressable onPress={onPress} style={styles.card}>
       <View style={styles.row}>
         <Text style={styles.title}>{title}</Text>
-        <Text style={[styles.badge, { color: fitColor }]}>{fitProbability}%</Text>
+        <Text style={[styles.badge, { color: fitColor }]}>{fitLabel}</Text>
       </View>
       <Text style={styles.meta}>{metaParts.join(' · ')}</Text>
     </Pressable>
@@ -60,6 +73,7 @@ const styles = StyleSheet.create({
   badge: {
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'right',
   },
   meta: {
     fontSize: 13,

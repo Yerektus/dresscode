@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Button } from '@repo/ui/button';
+import { FitGauge } from '@repo/ui/fit-gauge';
 import { ScreenContainer } from '@repo/ui/screen-container';
 import { SectionTitle } from '@repo/ui/section-title';
 import { uiColors } from '@repo/ui/colors';
@@ -172,12 +173,16 @@ export default function TryOnResultScreen() {
 
             <Text style={styles.metaLabel}>Date</Text>
             <Text style={styles.metaValue}>{formatDate(item.created_at)}</Text>
-
-            <Text style={styles.metaLabel}>Fit probability</Text>
-            <Text style={styles.metaValue}>
-              {fitProbability !== null ? `${fitProbability}%` : 'Unavailable'}
-            </Text>
           </View>
+
+          {fitProbability !== null ? (
+            <View style={styles.fitGaugeContainer}>
+              <FitGauge
+                recommendedSize={item.selected_size}
+                fitProbability={fitProbability}
+              />
+            </View>
+          ) : null}
         </>
       ) : null}
 
@@ -272,6 +277,9 @@ const styles = StyleSheet.create({
     color: uiColors.textPrimary,
     fontWeight: '500',
     marginBottom: 4,
+  },
+  fitGaugeContainer: {
+    marginTop: 16,
   },
   actions: {
     marginTop: 16,

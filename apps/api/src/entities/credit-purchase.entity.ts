@@ -29,7 +29,7 @@ export class CreditPurchase {
   credits_amount: number;
 
   @Column({ type: 'int' })
-  amount_usd_cents: number;
+  amount_kzt: number;
 
   @Column({ type: 'varchar', default: 'pending' })
   status: string;

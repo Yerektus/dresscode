@@ -8,11 +8,23 @@ import { WebkassaWebhookDto } from './dto/webhook.dto';
 import * as crypto from 'crypto';
 
 const CREDIT_PACKAGES = {
+  credits_20: {
+    code: 'credits_20',
+    credits: 20,
+    price_kzt: 2000,
+    amount_kzt: 2000,
+  },
   credits_50: {
     code: 'credits_50',
     credits: 50,
-    price_usd: 3,
-    amount_usd_cents: 300,
+    price_kzt: 5000,
+    amount_kzt: 5000,
+  },
+  credits_100: {
+    code: 'credits_100',
+    credits: 100,
+    price_kzt: 10000,
+    amount_kzt: 10000,
   },
 } as const;
 
@@ -50,7 +62,7 @@ export class SubscriptionService {
       external_payment_id: externalPaymentId,
       package_code: creditPackage.code,
       credits_amount: creditPackage.credits,
-      amount_usd_cents: creditPackage.amount_usd_cents,
+      amount_kzt: creditPackage.amount_kzt,
       status: 'pending',
     });
     await this.purchaseRepo.save(purchase);
@@ -63,7 +75,7 @@ export class SubscriptionService {
       payment_url: `https://pay.webkassa.kz/checkout/${externalPaymentId}`,
       external_payment_id: externalPaymentId,
       credits: creditPackage.credits,
-      price_usd: creditPackage.price_usd,
+      price_kzt: creditPackage.price_kzt,
     };
   }
 
@@ -152,6 +164,7 @@ export class SubscriptionService {
 
   private toBillingState(subscription: Subscription) {
     const creditPackage = CREDIT_PACKAGES.credits_50;
+    const availablePackages = Object.values(CREDIT_PACKAGES);
 
     return {
       id: subscription.id,
@@ -165,8 +178,13 @@ export class SubscriptionService {
       credit_pack: {
         code: creditPackage.code,
         credits: creditPackage.credits,
-        price_usd: creditPackage.price_usd,
+        price_kzt: creditPackage.price_kzt,
       },
+      credit_packs: availablePackages.map((pack) => ({
+        code: pack.code,
+        credits: pack.credits,
+        price_kzt: pack.price_kzt,
+      })),
       billing_mode: 'credits_only',
       premium_deprecated: true,
       created_at: subscription.created_at,

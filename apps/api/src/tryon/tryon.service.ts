@@ -47,7 +47,7 @@ interface FitProbabilityAiInput {
   category: string;
   selectedSize: string;
   measurements: TryOnMeasurements;
-  inferredFitProbability: number;
+  mannequinSnapshot: Record<string, unknown> | null;
   fitBreakdown: Record<string, number> | null;
 }
 
@@ -69,7 +69,7 @@ export class TryOnService {
     48,
   );
   private readonly waveSpeedFitLlmModel =
-    process.env.WAVESPEED_FIT_LLM_MODEL ?? 'google/gemini-2.5-flash';
+    process.env.WAVESPEED_FIT_LLM_MODEL ?? 'deepseek/deepseek-v3.2';
   private readonly waveSpeedImageSize = this.normalizeImageSize(
     process.env.WAVESPEED_IMAGE_SIZE ?? '1024*1536',
   );
@@ -79,7 +79,11 @@ export class TryOnService {
   );
   private readonly waveSpeedTimeoutMs = this.parsePositiveInt(
     process.env.WAVESPEED_TIMEOUT_MS,
-    90000,
+    120000,
+  );
+  private readonly waveSpeedExternalImageMaxBytes = this.parsePositiveInt(
+    process.env.WAVESPEED_EXTERNAL_IMAGE_MAX_BYTES,
+    25 * 1024 * 1024,
   );
 
   constructor(
@@ -107,7 +111,7 @@ export class TryOnService {
       where: { user_id: userId },
     });
     if (!subscription || subscription.credits_balance < 1) {
-      throw new ForbiddenException('Not enough credits. Buy 50 credits for $3 in Billing.');
+      throw new ForbiddenException('Not enough credits. Buy credits in Billing.');
     }
 
     const measurements: TryOnMeasurements = {
@@ -127,7 +131,7 @@ export class TryOnService {
       category: dto.category,
       selectedSize: dto.selected_size,
       measurements,
-      inferredFitProbability: inference.fitProbability,
+      mannequinSnapshot: mannequin.snapshot_json ?? null,
       fitBreakdown: inference.fitBreakdown,
     });
 
@@ -141,7 +145,7 @@ export class TryOnService {
         .execute();
 
       if (!debitResult.affected) {
-        throw new ForbiddenException('Not enough credits. Buy 50 credits for $3 in Billing.');
+        throw new ForbiddenException('Not enough credits. Buy credits in Billing.');
       }
 
       const request = manager.getRepository(TryOnRequest).create({
@@ -222,6 +226,14 @@ export class TryOnService {
       garmentImage,
       'Garment image',
     );
+    const preparedMannequinImage = await this.resolveWaveSpeedImageInput(
+      normalizedMannequinImage,
+      'Mannequin image',
+    );
+    const preparedGarmentImage = await this.resolveWaveSpeedImageInput(
+      normalizedGarmentImage,
+      'Garment image',
+    );
 
     if (this.waveSpeedModelPaths.length === 0) {
       throw new ServiceUnavailableException(
@@ -235,14 +247,14 @@ export class TryOnService {
       try {
         return await this.generateTryOnResultWithModel(
           modelPath,
-          normalizedMannequinImage,
-          normalizedGarmentImage,
+          preparedMannequinImage,
+          preparedGarmentImage,
           category,
           selectedSize,
           measurements,
         );
       } catch (error) {
-        if (!this.isModelMissingError(error)) {
+        if (!this.isModelMissingError(error) && !this.isInputImageFetchError(error)) {
           throw error;
         }
 
@@ -383,71 +395,92 @@ export class TryOnService {
     input: FitProbabilityAiInput,
   ): Promise<number> {
     const prompt = this.buildFitProbabilityPrompt(input);
-    const payloadCandidates = this.buildFitProbabilityPayloadCandidates(modelPath, prompt);
+    const anyLlmModelPath = this.normalizeModelPathCandidate('/wavespeed-ai/any-llm');
+    const isAnyLlmModel =
+      this.normalizeModelPathCandidate(modelPath) === anyLlmModelPath;
+    const llmModelCandidates = this.buildFitLlmModelCandidates(this.waveSpeedFitLlmModel);
 
     let lastPayloadError: string | null = null;
-    for (const payload of payloadCandidates) {
-      try {
-        const submitPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
-          this.resolveWaveSpeedUrl(modelPath),
-          {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          },
-        );
+    for (const llmModelCandidate of llmModelCandidates) {
+      const payloadCandidates = this.buildFitProbabilityPayloadCandidates(
+        modelPath,
+        prompt,
+        llmModelCandidate,
+      );
 
-        const submission = this.normalizePrediction(submitPayload);
-        const immediateScore = this.extractAiFitProbability(
-          submission.outputs ?? submission.urls ?? submitPayload,
-        );
-        if (immediateScore !== null) {
-          return immediateScore;
-        }
-
-        if (this.isFailedStatus(submission.status, submission.error ?? submission.message)) {
-          throw new ServiceUnavailableException(
-            `WaveSpeed fit-scoring failed: ${this.stringifyUnknown(submission.error ?? submission.message)}`,
-          );
-        }
-
-        if (!submission.id) {
-          throw new ServiceUnavailableException('WaveSpeed fit-scoring did not return task id');
-        }
-
-        const deadline = Date.now() + this.waveSpeedTimeoutMs;
-        while (Date.now() < deadline) {
-          await this.sleep(this.waveSpeedPollIntervalMs);
-
-          const resultPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
-            this.resolveWaveSpeedUrl(`/predictions/${submission.id}/result`),
-            { method: 'GET' },
+      let tryNextLlmCandidate = false;
+      for (const payload of payloadCandidates) {
+        try {
+          const submitPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
+            this.resolveWaveSpeedUrl(modelPath),
+            {
+              method: 'POST',
+              body: JSON.stringify(payload),
+            },
           );
 
-          const result = this.normalizePrediction(resultPayload);
-          const score = this.extractAiFitProbability(result.outputs ?? result.urls ?? resultPayload);
-          if (score !== null) {
-            return score;
+          const submission = this.normalizePrediction(submitPayload);
+          const immediateScore = this.extractAiFitProbability(
+            submission.outputs ?? submission.urls ?? submitPayload,
+          );
+          if (immediateScore !== null) {
+            return immediateScore;
           }
 
-          if (this.isCompletedStatus(result.status)) {
+          if (this.isFailedStatus(submission.status, submission.error ?? submission.message)) {
             throw new ServiceUnavailableException(
-              'WaveSpeed fit-scoring completed without numeric fit_probability output',
+              `WaveSpeed fit-scoring failed: ${this.stringifyUnknown(submission.error ?? submission.message)}`,
             );
           }
 
-          if (this.isFailedStatus(result.status, result.error ?? result.message)) {
-            throw new ServiceUnavailableException(
-              `WaveSpeed fit-scoring failed: ${this.stringifyUnknown(result.error ?? result.message)}`,
-            );
+          if (!submission.id) {
+            throw new ServiceUnavailableException('WaveSpeed fit-scoring did not return task id');
           }
-        }
 
-        throw new ServiceUnavailableException('WaveSpeed fit-scoring timed out');
-      } catch (error) {
-        lastPayloadError = this.extractErrorText(error);
-        if (!this.isPayloadSchemaError(error)) {
+          const deadline = Date.now() + this.waveSpeedTimeoutMs;
+          while (Date.now() < deadline) {
+            await this.sleep(this.waveSpeedPollIntervalMs);
+
+            const resultPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
+              this.resolveWaveSpeedUrl(`/predictions/${submission.id}/result`),
+              { method: 'GET' },
+            );
+
+            const result = this.normalizePrediction(resultPayload);
+            const score = this.extractAiFitProbability(result.outputs ?? result.urls ?? resultPayload);
+            if (score !== null) {
+              return score;
+            }
+
+            if (this.isCompletedStatus(result.status)) {
+              throw new ServiceUnavailableException(
+                'WaveSpeed fit-scoring completed without numeric fit_probability output',
+              );
+            }
+
+            if (this.isFailedStatus(result.status, result.error ?? result.message)) {
+              throw new ServiceUnavailableException(
+                `WaveSpeed fit-scoring failed: ${this.stringifyUnknown(result.error ?? result.message)}`,
+              );
+            }
+          }
+
+          throw new ServiceUnavailableException('WaveSpeed fit-scoring timed out');
+        } catch (error) {
+          lastPayloadError = this.extractErrorText(error);
+          if (this.isPayloadSchemaError(error)) {
+            continue;
+          }
+          if (isAnyLlmModel && this.isModelMissingError(error)) {
+            tryNextLlmCandidate = true;
+            break;
+          }
           throw error;
         }
+      }
+
+      if (!tryNextLlmCandidate) {
+        break;
       }
     }
 
@@ -459,9 +492,10 @@ export class TryOnService {
   private buildFitProbabilityPayloadCandidates(
     modelPath: string,
     prompt: string,
+    llmModel: string,
   ): Array<Record<string, unknown>> {
     const systemPrompt =
-      'Return only valid JSON with one numeric field: {"fit_probability": <0-100>}.';
+      'You must return exactly one JSON object with one integer field: {"fit_probability": 0-100}. No markdown, no explanation, no extra keys.';
     const messages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: prompt },
@@ -475,14 +509,18 @@ export class TryOnService {
         {
           prompt,
           system_prompt: systemPrompt,
-          model: this.waveSpeedFitLlmModel,
+          model: llmModel,
+          reasoning: false,
+          priority: 'latency',
           temperature: 0,
           max_tokens: this.waveSpeedFitMaxTokens,
           enable_sync_mode: true,
         },
         {
           prompt: mergedPrompt,
-          model: this.waveSpeedFitLlmModel,
+          model: llmModel,
+          reasoning: false,
+          priority: 'latency',
           temperature: 0,
           max_tokens: this.waveSpeedFitMaxTokens,
           enable_sync_mode: true,
@@ -515,22 +553,111 @@ export class TryOnService {
     ];
   }
 
+  private buildFitLlmModelCandidates(primaryModel: string): string[] {
+    const primary = primaryModel.trim() || 'deepseek/deepseek-v3.2';
+    const candidates = [primary];
+    if (primary === 'google/gemini-3-flash') {
+      candidates.push('google/gemini-3-flash-preview');
+    }
+    if (primary === 'deepseek/deepseek-v3.2') {
+      candidates.push('deepseek/deepseek-v3.2-chat');
+      candidates.push('deepseek/deepseek-v3.2-exp');
+    }
+
+    const uniqueCandidates: string[] = [];
+    for (const candidate of candidates) {
+      if (!uniqueCandidates.includes(candidate)) {
+        uniqueCandidates.push(candidate);
+      }
+    }
+
+    return uniqueCandidates;
+  }
+
   private buildFitProbabilityPrompt(input: FitProbabilityAiInput): string {
-    const measurements = this.buildMeasurementsPrompt(input.measurements);
+    const mannequinProfile = this.buildMannequinProfilePrompt(input.mannequinSnapshot);
     const fitBreakdownText = input.fitBreakdown
       ? JSON.stringify(input.fitBreakdown)
       : 'not available';
+    const hasBodyMeasurements =
+      input.measurements.chestCm !== null ||
+      input.measurements.waistCm !== null ||
+      input.measurements.hipsCm !== null;
+
+    const bodyMeasurementsLine = hasBodyMeasurements
+      ? `Body measurements are provided: chest ${
+          input.measurements.chestCm ?? 'not provided'
+        } cm, waist ${input.measurements.waistCm ?? 'not provided'} cm, hips ${
+          input.measurements.hipsCm ?? 'not provided'
+        } cm - use these values together with height, weight, gender, and selected size.`
+      : 'Body measurements are not provided - infer only from height, weight, gender, and selected size.';
 
     return [
-      'Estimate garment fit probability for virtual try-on.',
-      'Use 0 as very poor fit and 100 as excellent fit.',
-      `Category: ${input.category}.`,
-      `Selected size: ${input.selectedSize}.`,
-      measurements || 'Body measurements were not provided.',
-      `Initial model fit hint: ${input.inferredFitProbability}.`,
-      `Fit breakdown hint: ${fitBreakdownText}.`,
-      'Respond with JSON only and no extra text.',
-    ].join(' ');
+      'Estimate fit_probability (0-100) for size recommendation in virtual try-on using only the provided body profile signals and the selected size.',
+      '',
+      'Fit scale:',
+      '0-33 = Tight',
+      '34-66 = True Fit',
+      '67-100 = Loose',
+      '',
+      `Category: ${input.category}`,
+      `Selected size: ${input.selectedSize}`,
+      '',
+      'Mannequin profile:',
+      '',
+      mannequinProfile,
+      '',
+      `Fit breakdown signals: ${fitBreakdownText}`,
+      '',
+      bodyMeasurementsLine,
+      '',
+      'Return exactly:',
+      '{"fit_probability": <integer 0..100>}',
+      '',
+      'No markdown. No explanation. No additional keys.',
+    ].join('\n');
+  }
+
+  private buildMannequinProfilePrompt(snapshot: Record<string, unknown> | null): string {
+    const source = snapshot ?? {};
+    const genderRaw = this.asString(source.gender)?.toLowerCase();
+    const gender =
+      genderRaw === 'male' || genderRaw === 'female' ? genderRaw : 'not provided';
+
+    const height = this.normalizeProfileMeasurement(this.toFiniteNumber(source.height_cm));
+    const weight = this.normalizeProfileMeasurement(this.toFiniteNumber(source.weight_kg));
+    const chest = this.normalizeProfileMeasurement(this.toFiniteNumber(source.chest_cm));
+    const waist = this.normalizeProfileMeasurement(this.toFiniteNumber(source.waist_cm));
+    const hips = this.normalizeProfileMeasurement(this.toFiniteNumber(source.hips_cm));
+
+    let faceReference = 'not provided';
+    if (typeof source.face_image_used === 'boolean') {
+      faceReference = source.face_image_used ? 'used' : 'not used';
+    }
+
+    return [
+      `Gender: ${gender}`,
+      '',
+      `Height: ${height === null ? 'not provided' : `${Math.round(height)} cm`}`,
+      '',
+      `Weight: ${weight === null ? 'not provided' : `${Math.round(weight)} kg`}`,
+      '',
+      `Chest: ${chest === null ? 'not provided' : `${Math.round(chest)} cm`}`,
+      '',
+      `Waist: ${waist === null ? 'not provided' : `${Math.round(waist)} cm`}`,
+      '',
+      `Hips: ${hips === null ? 'not provided' : `${Math.round(hips)} cm`}`,
+      '',
+      `Face reference: ${faceReference}`,
+    ].join('\n');
+  }
+
+  private normalizeProfileMeasurement(value: number | null): number | null {
+    if (value === null || value <= 0) {
+      return null;
+    }
+
+    return value;
   }
 
   private extractAiFitProbability(payload: unknown): number | null {
@@ -558,7 +685,7 @@ export class TryOnService {
       return null;
     }
 
-    const parsedTextJson = this.tryParseJson(textOutput);
+    const parsedTextJson = this.asRecord(this.tryParseJson(textOutput)) ?? this.extractJsonObjectFromText(textOutput);
     const numericFromJson = this.findFirstNumericValue(parsedTextJson, [
       'fit_probability',
       'fitProbability',
@@ -569,13 +696,72 @@ export class TryOnService {
     if (normalizedJson !== null) {
       return normalizedJson;
     }
+    return null;
+  }
 
-    const numericFromText = textOutput.match(/-?\d+(\.\d+)?/);
-    if (!numericFromText) {
-      return null;
+  private extractJsonObjectFromText(text: string): Record<string, unknown> | null {
+    const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fencedMatch?.[1]) {
+      const parsedFence = this.asRecord(this.tryParseJson(fencedMatch[1]));
+      if (parsedFence) {
+        return parsedFence;
+      }
     }
 
-    return this.normalizePercentScore(Number.parseFloat(numericFromText[0]));
+    const parsedWhole = this.asRecord(this.tryParseJson(text));
+    if (parsedWhole) {
+      return parsedWhole;
+    }
+
+    let startIndex = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\' && inString) {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === '{') {
+        if (depth === 0) {
+          startIndex = index;
+        }
+        depth += 1;
+        continue;
+      }
+
+      if (char === '}' && depth > 0) {
+        depth -= 1;
+        if (depth === 0 && startIndex >= 0) {
+          const candidate = text.slice(startIndex, index + 1);
+          const parsedCandidate = this.asRecord(this.tryParseJson(candidate));
+          if (parsedCandidate) {
+            return parsedCandidate;
+          }
+          startIndex = -1;
+        }
+      }
+    }
+
+    return null;
   }
 
   private buildTryOnPayloadCandidates(
@@ -957,6 +1143,81 @@ export class TryOnService {
     );
   }
 
+  private async resolveWaveSpeedImageInput(value: string, fieldName: string): Promise<string> {
+    if (value.startsWith('data:')) {
+      return value;
+    }
+
+    const downloaded = await this.tryFetchImageAsDataUri(value, fieldName);
+    return downloaded ?? value;
+  }
+
+  private async tryFetchImageAsDataUri(url: string, fieldName: string): Promise<string | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const contentLengthHeader = response.headers.get('content-length');
+      const contentLength = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : NaN;
+      if (Number.isFinite(contentLength) && contentLength > this.waveSpeedExternalImageMaxBytes) {
+        return null;
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      if (arrayBuffer.byteLength > this.waveSpeedExternalImageMaxBytes) {
+        return null;
+      }
+
+      const declaredMime = (response.headers.get('content-type') ?? '').split(';')[0]?.trim();
+      const mimeType = this.resolveImageMimeType(declaredMime, url);
+      if (!mimeType) {
+        return null;
+      }
+
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      if (!base64) {
+        throw new BadRequestException(`${fieldName} is empty`);
+      }
+
+      return `data:${mimeType};base64,${base64}`;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private resolveImageMimeType(contentType: string, url: string): string | null {
+    if (contentType.startsWith('image/')) {
+      return contentType;
+    }
+
+    const loweredUrl = url.toLowerCase();
+    if (loweredUrl.includes('.png')) {
+      return 'image/png';
+    }
+    if (loweredUrl.includes('.webp')) {
+      return 'image/webp';
+    }
+    if (loweredUrl.includes('.heic') || loweredUrl.includes('.heif')) {
+      return 'image/heic';
+    }
+    if (loweredUrl.includes('.jpg') || loweredUrl.includes('.jpeg')) {
+      return 'image/jpeg';
+    }
+
+    return null;
+  }
+
   private findFirstNumericValue(
     value: unknown,
     preferredKeys: string[],
@@ -1050,7 +1311,9 @@ export class TryOnService {
 
     if (!response.ok) {
       const message = this.extractErrorMessage(parsedBody) ?? `HTTP ${response.status}`;
-      throw new ServiceUnavailableException(`WaveSpeed request failed: ${message}`);
+      const code = this.extractErrorCode(parsedBody);
+      const withCode = code !== null ? `[code ${code}] ${message}` : message;
+      throw new ServiceUnavailableException(`WaveSpeed request failed: ${withCode}`);
     }
 
     if (!parsedBody || typeof parsedBody !== 'object') {
@@ -1092,7 +1355,7 @@ export class TryOnService {
 
   private extractImageUrl(data: unknown): string | null {
     if (typeof data === 'string') {
-      return data;
+      return this.normalizeImageReference(data);
     }
 
     if (Array.isArray(data)) {
@@ -1120,7 +1383,10 @@ export class TryOnService {
 
     for (const candidate of directCandidates) {
       if (typeof candidate === 'string' && candidate) {
-        return candidate;
+        const normalized = this.normalizeImageReference(candidate);
+        if (normalized) {
+          return normalized;
+        }
       }
     }
 
@@ -1129,6 +1395,30 @@ export class TryOnService {
       const nestedUrl = this.extractImageUrl(nestedCandidate);
       if (nestedUrl) {
         return nestedUrl;
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeImageReference(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (trimmed.startsWith('data:image/')) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          return parsed.toString();
+        }
+      } catch {
+        return null;
       }
     }
 
@@ -1267,6 +1557,28 @@ export class TryOnService {
     return null;
   }
 
+  private extractErrorCode(payload: unknown): number | null {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+
+    const record = payload as Record<string, unknown>;
+    const code = Number.parseInt(String(record.code ?? ''), 10);
+    if (Number.isFinite(code)) {
+      return code;
+    }
+
+    const nestedCandidates = [record.error, record.data];
+    for (const nested of nestedCandidates) {
+      const nestedCode = this.extractErrorCode(nested);
+      if (nestedCode !== null) {
+        return nestedCode;
+      }
+    }
+
+    return null;
+  }
+
   private parsePositiveInt(rawValue: string | undefined, fallback: number): number {
     const parsed = Number.parseInt(rawValue ?? '', 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -1328,7 +1640,20 @@ export class TryOnService {
 
   private isModelMissingError(error: unknown): boolean {
     const message = this.extractErrorText(error).toLowerCase();
-    return message.includes('product not found') || message.includes('model not found');
+    return (
+      message.includes('product not found') ||
+      message.includes('model not found') ||
+      message.includes('[code 1405]') ||
+      message.includes('code 1405')
+    );
+  }
+
+  private isInputImageFetchError(error: unknown): boolean {
+    const message = this.extractErrorText(error).toLowerCase();
+    return (
+      message.includes('cannot fetch content from the provided url') ||
+      message.includes('url is valid and accessible')
+    );
   }
 
   private extractErrorText(error: unknown): string {
