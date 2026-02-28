@@ -27,7 +27,7 @@ export function Avatar({ label, style, textStyle }: AvatarProps) {
         {
           width: 43.5,
           height: 43.5,
-          borderRadius: 12,
+          borderRadius: 999,
         },
         style,
       ]}

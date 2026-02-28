@@ -44,13 +44,6 @@ const DEFAULT_SETTINGS_NAV_ITEM: SettingsNavItem = 'Profile';
 const MANNEQUIN_LEFT_METRIC_KEYS = ['gender', 'chest', 'waist', 'sleeve'] as const;
 const MANNEQUIN_RIGHT_METRIC_KEYS = ['height', 'weight', 'hips', 'inseam'] as const;
 const MANNEQUIN_CENTER_METRIC_KEY = 'body_shape';
-const BILLING_FEATURES = [
-  'More try-ons per purchase',
-  'Fast virtual fitting',
-  'Result history',
-  'Private wardrobe workflow',
-  'Pay only when you need',
-] as const;
 const DEFAULT_CREDIT_PACKAGES: {
   code: api.CreditPackageCode;
   credits: number;
@@ -60,6 +53,7 @@ const DEFAULT_CREDIT_PACKAGES: {
   { code: 'credits_50', credits: 50, price_kzt: 5000 },
   { code: 'credits_100', credits: 100, price_kzt: 10000 },
 ];
+const TELEGRAM_PROFILE_URL = process.env.EXPO_PUBLIC_TELEGRAM_PROFILE_URL ?? 'https://t.me';
 const webSidebarTransition = Platform.select({
   web: {
     transitionProperty: 'background-color, transform',
@@ -578,7 +572,6 @@ export default function SettingsScreen() {
       <View style={styles.subscriptionCard}>
         <View style={styles.subscriptionMain}>
           <View style={styles.planInfo}>
-            <Text style={styles.planTitle}>Pro</Text>
             <Text style={styles.planSubtitle}>Credits for virtual try-on</Text>
           </View>
 
@@ -586,9 +579,6 @@ export default function SettingsScreen() {
             <Text style={styles.priceValue}>₸{formatKzt(selectedCreditPack.price_kzt)}</Text>
             <Text style={styles.priceSuffix}>/ {selectedCreditPack.credits} credits</Text>
           </View>
-
-          <Text style={styles.balanceText}>Current balance: {creditBalanceLabel}</Text>
-          <Text style={styles.balanceHint}>1 credit = 100 KZT</Text>
 
           <View style={styles.packageSelector}>
             {creditPackages.map((pack) => {
@@ -612,22 +602,17 @@ export default function SettingsScreen() {
             })}
           </View>
 
+          <Text style={styles.balanceText}>Current balance: {creditBalanceLabel}</Text>
+
           <Button
             style={styles.billingCta}
             onPress={() => {
               void (async () => {
                 try {
                   setIsBuyingCredits(true);
-                  const payment = await api.createPayment(selectedCreditPack.code);
-                  await Linking.openURL(payment.payment_url);
-                  showInfoAlert(
-                    'Payment started',
-                    `Complete payment for ${payment.credits} credits (₸${formatKzt(
-                      payment.price_kzt,
-                    )}) in checkout. Balance updates automatically when you return.`,
-                  );
+                  await Linking.openURL(TELEGRAM_PROFILE_URL);
                 } catch (error) {
-                  showInfoAlert('Error', error instanceof Error ? error.message : 'Failed to create payment');
+                  showInfoAlert('Error', error instanceof Error ? error.message : 'Failed to open Telegram profile');
                 } finally {
                   setIsBuyingCredits(false);
                 }
@@ -636,20 +621,8 @@ export default function SettingsScreen() {
             loading={isBuyingCredits}
             disabled={isInitialLoading || isBuyingCredits}
           >
-            {`Buy ${selectedCreditPack.credits} credits`}
+            Contact in Telegram
           </Button>
-        </View>
-
-        <View style={styles.planDivider} />
-
-        <View style={styles.featuresBlock}>
-          <Text style={styles.featuresTitle}>Everything included:</Text>
-          {BILLING_FEATURES.map((feature) => (
-            <View key={feature} style={styles.featureItem}>
-              <Text style={styles.featureCheck}>✓</Text>
-              <Text style={styles.featureText}>{feature}</Text>
-            </View>
-          ))}
         </View>
       </View>
     </View>
@@ -884,8 +857,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   balanceText: {
-    marginTop: 12,
-    fontSize: 14,
+    marginTop: 8,
+    fontSize: 12,
     color: uiColors.textMuted,
   },
   balanceHint: {

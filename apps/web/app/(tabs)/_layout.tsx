@@ -303,8 +303,7 @@ const styles = StyleSheet.create({
   },
   desktopHeader: {
     backgroundColor: uiColors.background,
-    paddingTop: 18,
-    paddingBottom: 14,
+    paddingVertical: 14,
     paddingHorizontal: 32,
     zIndex: 20,
   },
@@ -351,10 +350,11 @@ const styles = StyleSheet.create({
   },
   desktopNavText: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
     color: uiColors.textMuted,
   },
   desktopNavTextActive: {
+    backgroundColor: 'rgba(17,17,17,0.04)',
     color: uiColors.textPrimary,
   },
   desktopActions: {
