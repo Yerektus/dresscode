@@ -4,6 +4,7 @@ import { MannequinVersion } from './mannequin-version.entity';
 import { TryOnRequest } from './try-on-request.entity';
 import { Subscription } from './subscription.entity';
 import { CreditPurchase } from './credit-purchase.entity';
+import { EmailVerificationToken } from './email-verification-token.entity';
 
 @Entity('users')
 export class User {
@@ -15,6 +16,12 @@ export class User {
 
   @Column()
   password_hash: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  email_verified_at: Date | null;
+
+  @Column({ nullable: true, unique: true })
+  pending_email: string | null;
 
   @CreateDateColumn()
   created_at: Date;
@@ -36,4 +43,7 @@ export class User {
 
   @OneToMany(() => CreditPurchase, (purchase) => purchase.user)
   credit_purchases: CreditPurchase[];
+
+  @OneToMany(() => EmailVerificationToken, (token) => token.user)
+  email_verification_tokens: EmailVerificationToken[];
 }

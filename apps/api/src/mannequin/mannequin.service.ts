@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MannequinVersion } from '../entities/mannequin-version.entity';
 import { BodyProfile } from '../entities/body-profile.entity';
+import { estimateDataUriBytes, isDataUri } from '../storage/data-uri';
+import { StorageService } from '../storage/storage.service';
 
 interface WaveSpeedApiEnvelope<T = unknown> {
   code?: number;
@@ -53,12 +55,17 @@ export class MannequinService {
     process.env.WAVESPEED_TIMEOUT_MS,
     90000,
   );
+  private readonly legacyDataUriMaxBytes = this.parsePositiveInt(
+    process.env.LEGACY_DATA_URI_MAX_BYTES,
+    6 * 1024 * 1024,
+  );
 
   constructor(
     @InjectRepository(MannequinVersion)
     private readonly repo: Repository<MannequinVersion>,
     @InjectRepository(BodyProfile)
     private readonly bodyProfileRepo: Repository<BodyProfile>,
+    private readonly storageService: StorageService,
   ) {}
 
   async getActive(userId: string) {
@@ -73,11 +80,9 @@ export class MannequinService {
     const profile = await this.bodyProfileRepo.findOne({ where: { user_id: userId } });
     if (!profile) throw new NotFoundException('Body profile not found. Complete onboarding first.');
 
-    const normalizedFaceImage = profile.face_image
-      ? this.normalizeWaveSpeedImageInput(profile.face_image, 'Face image')
-      : null;
-    const generatedImageUrl = normalizedFaceImage
-      ? await this.generateMannequinImageWithFace(profile, normalizedFaceImage)
+    const faceImageInput = await this.resolveFaceImageInput(userId, profile.face_image);
+    const generatedImageUrl = faceImageInput
+      ? await this.generateMannequinImageWithFace(profile, faceImageInput)
       : await this.generateMannequinImage(profile);
 
     // Deactivate previous versions
@@ -92,7 +97,7 @@ export class MannequinService {
         waist_cm: profile.waist_cm,
         hips_cm: profile.hips_cm,
         gender: profile.gender,
-        face_image_used: Boolean(normalizedFaceImage),
+        face_image_used: Boolean(faceImageInput),
       },
       front_image_url: generatedImageUrl,
       side_image_url: null,
@@ -100,6 +105,20 @@ export class MannequinService {
     });
 
     return this.repo.save(version);
+  }
+
+  private async resolveFaceImageInput(userId: string, value: string | null): Promise<string | null> {
+    if (!value) {
+      return null;
+    }
+
+    const assetKey = this.storageService.extractAssetKeyFromReference(value);
+    if (assetKey) {
+      const normalizedKey = this.storageService.validateAssetKey(assetKey, userId, 'face_image');
+      return this.storageService.createSignedReadUrl(normalizedKey);
+    }
+
+    return this.normalizeWaveSpeedImageInput(value, 'Face image');
   }
 
   private async generateMannequinImage(profile: BodyProfile): Promise<string> {
@@ -663,17 +682,9 @@ export class MannequinService {
       throw new BadRequestException(`${fieldName} is required`);
     }
 
-    if (trimmed.startsWith('data:')) {
+    if (isDataUri(trimmed)) {
+      this.assertLegacyDataUriSize(trimmed, fieldName);
       return trimmed;
-    }
-
-    if (trimmed.startsWith('//')) {
-      return `https:${trimmed}`;
-    }
-
-    const domainLikeValue = /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed);
-    if (domainLikeValue) {
-      return `https://${trimmed}`;
     }
 
     try {
@@ -681,16 +692,24 @@ export class MannequinService {
       if (parsed.protocol === 'https:') {
         return parsed.toString();
       }
-
-      if (parsed.protocol === 'http:') {
-        parsed.protocol = 'https:';
-        return parsed.toString();
-      }
     } catch {
       // Fall through to validation error below.
     }
 
     throw new BadRequestException(`${fieldName} must be a valid HTTPS URL or a Data URI`);
+  }
+
+  private assertLegacyDataUriSize(value: string, fieldName: string) {
+    const bytes = estimateDataUriBytes(value);
+    if (bytes === null) {
+      throw new BadRequestException(`${fieldName} must be a valid base64 Data URI`);
+    }
+
+    if (bytes > this.legacyDataUriMaxBytes) {
+      throw new BadRequestException(
+        `${fieldName} exceeds legacy Data URI size limit (${this.legacyDataUriMaxBytes} bytes)`,
+      );
+    }
   }
 
   private isModelMissingError(error: unknown): boolean {

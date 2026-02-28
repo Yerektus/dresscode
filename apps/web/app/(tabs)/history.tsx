@@ -25,7 +25,7 @@ function formatDate(value: string): string {
   return date.toLocaleDateString();
 }
 
-function formatMeasurementShort(label: string, value: number | null): string | null {
+function formatMeasurementShort(label: string, value: number | null | undefined): string | null {
   if (!Number.isFinite(value)) {
     return null;
   }

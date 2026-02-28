@@ -6,6 +6,7 @@ import { TryOnRequest } from '../entities/try-on-request.entity';
 import { TryOnResult } from '../entities/try-on-result.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { CreditPurchase } from '../entities/credit-purchase.entity';
+import { EmailVerificationToken } from '../entities/email-verification-token.entity';
 
 export default new DataSource({
   type: 'postgres',
@@ -14,6 +15,15 @@ export default new DataSource({
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? 'postgres',
   database: process.env.DB_NAME ?? 'dresscode',
-  entities: [User, BodyProfile, MannequinVersion, TryOnRequest, TryOnResult, Subscription, CreditPurchase],
+  entities: [
+    User,
+    BodyProfile,
+    MannequinVersion,
+    TryOnRequest,
+    TryOnResult,
+    Subscription,
+    CreditPurchase,
+    EmailVerificationToken,
+  ],
   migrations: ['src/database/migrations/*.ts'],
 });

@@ -11,6 +11,8 @@ import { MannequinVersion } from '../entities/mannequin-version.entity';
 import { TryOnRequest } from '../entities/try-on-request.entity';
 import { TryOnResult } from '../entities/try-on-result.entity';
 import { Subscription } from '../entities/subscription.entity';
+import { estimateDataUriBytes, isDataUri } from '../storage/data-uri';
+import { StorageService } from '../storage/storage.service';
 import { CreateTryOnDto } from './dto/create-tryon.dto';
 
 interface WaveSpeedApiEnvelope<T = unknown> {
@@ -41,6 +43,11 @@ interface TryOnMeasurements {
   chestCm: number | null;
   waistCm: number | null;
   hipsCm: number | null;
+}
+
+interface ResolvedGarmentInput {
+  waveSpeedInput: string;
+  storedReference: string;
 }
 
 interface FitProbabilityAiInput {
@@ -81,9 +88,9 @@ export class TryOnService {
     process.env.WAVESPEED_TIMEOUT_MS,
     120000,
   );
-  private readonly waveSpeedExternalImageMaxBytes = this.parsePositiveInt(
-    process.env.WAVESPEED_EXTERNAL_IMAGE_MAX_BYTES,
-    25 * 1024 * 1024,
+  private readonly legacyDataUriMaxBytes = this.parsePositiveInt(
+    process.env.LEGACY_DATA_URI_MAX_BYTES,
+    6 * 1024 * 1024,
   );
 
   constructor(
@@ -95,6 +102,7 @@ export class TryOnService {
     private readonly mannequinRepo: Repository<MannequinVersion>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly storageService: StorageService,
   ) {}
 
   async create(userId: string, dto: CreateTryOnDto) {
@@ -119,10 +127,11 @@ export class TryOnService {
       waistCm: this.normalizeMeasurement(dto.waist_cm),
       hipsCm: this.normalizeMeasurement(dto.hips_cm),
     };
+    const garmentInput = await this.resolveGarmentInput(userId, dto);
 
     const inference = await this.generateTryOnResult(
       mannequin.front_image_url,
-      dto.garment_image,
+      garmentInput.waveSpeedInput,
       dto.category,
       dto.selected_size,
       measurements,
@@ -151,7 +160,7 @@ export class TryOnService {
       const request = manager.getRepository(TryOnRequest).create({
         user_id: userId,
         mannequin_version_id: dto.mannequin_version_id,
-        garment_image_url: this.toStoredGarmentReference(dto.garment_image),
+        garment_image_url: garmentInput.storedReference,
         category: dto.category,
         selected_size: dto.selected_size,
         chest_cm: measurements.chestCm,
@@ -194,6 +203,36 @@ export class TryOnService {
     });
   }
 
+  private async resolveGarmentInput(userId: string, dto: CreateTryOnDto): Promise<ResolvedGarmentInput> {
+    if (dto.garment_asset_key) {
+      const normalizedKey = this.storageService.validateAssetKey(
+        dto.garment_asset_key,
+        userId,
+        'garment_image',
+      );
+
+      return {
+        waveSpeedInput: await this.storageService.createSignedReadUrl(normalizedKey),
+        storedReference: this.storageService.toStoredAssetReference(normalizedKey),
+      };
+    }
+
+    const legacyValue = dto.garment_image?.trim();
+    if (!legacyValue) {
+      throw new BadRequestException('Either garment_asset_key or garment_image is required');
+    }
+
+    const normalizedLegacyValue = this.normalizeWaveSpeedImageInput(legacyValue, 'Garment image');
+    if (isDataUri(normalizedLegacyValue)) {
+      this.assertLegacyDataUriSize(normalizedLegacyValue, 'Garment image');
+    }
+
+    return {
+      waveSpeedInput: normalizedLegacyValue,
+      storedReference: this.toStoredGarmentReference(normalizedLegacyValue),
+    };
+  }
+
   private async ensureBillingAccount(userId: string) {
     await this.dataSource
       .createQueryBuilder()
@@ -226,14 +265,6 @@ export class TryOnService {
       garmentImage,
       'Garment image',
     );
-    const preparedMannequinImage = await this.resolveWaveSpeedImageInput(
-      normalizedMannequinImage,
-      'Mannequin image',
-    );
-    const preparedGarmentImage = await this.resolveWaveSpeedImageInput(
-      normalizedGarmentImage,
-      'Garment image',
-    );
 
     if (this.waveSpeedModelPaths.length === 0) {
       throw new ServiceUnavailableException(
@@ -247,8 +278,8 @@ export class TryOnService {
       try {
         return await this.generateTryOnResultWithModel(
           modelPath,
-          preparedMannequinImage,
-          preparedGarmentImage,
+          normalizedMannequinImage,
+          normalizedGarmentImage,
           category,
           selectedSize,
           measurements,
@@ -1111,27 +1142,14 @@ export class TryOnService {
       throw new BadRequestException(`${fieldName} is required`);
     }
 
-    if (trimmed.startsWith('data:')) {
+    if (isDataUri(trimmed)) {
+      this.assertLegacyDataUriSize(trimmed, fieldName);
       return trimmed;
-    }
-
-    if (trimmed.startsWith('//')) {
-      return `https:${trimmed}`;
-    }
-
-    const domainLikeValue = /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed);
-    if (domainLikeValue) {
-      return `https://${trimmed}`;
     }
 
     try {
       const parsed = new URL(trimmed);
       if (parsed.protocol === 'https:') {
-        return parsed.toString();
-      }
-
-      if (parsed.protocol === 'http:') {
-        parsed.protocol = 'https:';
         return parsed.toString();
       }
     } catch {
@@ -1143,79 +1161,16 @@ export class TryOnService {
     );
   }
 
-  private async resolveWaveSpeedImageInput(value: string, fieldName: string): Promise<string> {
-    if (value.startsWith('data:')) {
-      return value;
+  private assertLegacyDataUriSize(value: string, fieldName: string) {
+    const bytes = estimateDataUriBytes(value);
+    if (bytes === null) {
+      throw new BadRequestException(`${fieldName} must be a valid base64 Data URI`);
     }
-
-    const downloaded = await this.tryFetchImageAsDataUri(value, fieldName);
-    return downloaded ?? value;
-  }
-
-  private async tryFetchImageAsDataUri(url: string, fieldName: string): Promise<string | null> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const contentLengthHeader = response.headers.get('content-length');
-      const contentLength = contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : NaN;
-      if (Number.isFinite(contentLength) && contentLength > this.waveSpeedExternalImageMaxBytes) {
-        return null;
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      if (arrayBuffer.byteLength > this.waveSpeedExternalImageMaxBytes) {
-        return null;
-      }
-
-      const declaredMime = (response.headers.get('content-type') ?? '').split(';')[0]?.trim();
-      const mimeType = this.resolveImageMimeType(declaredMime, url);
-      if (!mimeType) {
-        return null;
-      }
-
-      const base64 = Buffer.from(arrayBuffer).toString('base64');
-      if (!base64) {
-        throw new BadRequestException(`${fieldName} is empty`);
-      }
-
-      return `data:${mimeType};base64,${base64}`;
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeout);
+    if (bytes > this.legacyDataUriMaxBytes) {
+      throw new BadRequestException(
+        `${fieldName} exceeds legacy Data URI size limit (${this.legacyDataUriMaxBytes} bytes)`,
+      );
     }
-  }
-
-  private resolveImageMimeType(contentType: string, url: string): string | null {
-    if (contentType.startsWith('image/')) {
-      return contentType;
-    }
-
-    const loweredUrl = url.toLowerCase();
-    if (loweredUrl.includes('.png')) {
-      return 'image/png';
-    }
-    if (loweredUrl.includes('.webp')) {
-      return 'image/webp';
-    }
-    if (loweredUrl.includes('.heic') || loweredUrl.includes('.heif')) {
-      return 'image/heic';
-    }
-    if (loweredUrl.includes('.jpg') || loweredUrl.includes('.jpeg')) {
-      return 'image/jpeg';
-    }
-
-    return null;
   }
 
   private findFirstNumericValue(

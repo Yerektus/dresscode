@@ -14,6 +14,8 @@
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.884.0",
+    "@aws-sdk/s3-request-presigner": "^3.884.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/jwt": "^11.0.0",
@@ -26,6 +28,7 @@
     "class-validator": "^0.14.1",
     "dotenv": "^16.0.3",
     "helmet": "^8.0.0",
+    "nodemailer": "^7.0.7",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.13.0",

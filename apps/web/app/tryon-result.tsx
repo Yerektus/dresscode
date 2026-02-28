@@ -39,7 +39,7 @@ function formatCategory(value: string): string {
     .join(' ');
 }
 
-function formatMeasurement(value: number | null): string {
+function formatMeasurement(value: number | null | undefined): string {
   if (!Number.isFinite(value)) {
     return '—';
   }

@@ -9,6 +9,9 @@ import { TextField } from '@repo/ui/text-field';
 import { UploadZone } from '@repo/ui/upload-zone';
 import * as ImagePicker from 'expo-image-picker';
 import * as api from '@/services/api';
+import { uploadImageAssetWithPresign } from '@/services/media-upload';
+
+type TryOnSize = api.CreateTryOnRequestDto['selected_size'];
 
 function asDataUri(asset: ImagePicker.ImagePickerAsset): string | null {
   if (!asset.base64) {
@@ -22,18 +25,20 @@ function asDataUri(asset: ImagePicker.ImagePickerAsset): string | null {
 export default function TryOnScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const [size, setSize] = useState<string>('M');
+  const [size, setSize] = useState<TryOnSize>('M');
   const [waistInput, setWaistInput] = useState('');
   const [chestInput, setChestInput] = useState('');
   const [hipsInput, setHipsInput] = useState('');
   const [garmentImageUri, setGarmentImageUri] = useState<string | null>(null);
   const [garmentImageDataUri, setGarmentImageDataUri] = useState<string | null>(null);
+  const [garmentImageAsset, setGarmentImageAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [garmentImageAssetKey, setGarmentImageAssetKey] = useState<string | null>(null);
   const [isPickingImage, setIsPickingImage] = useState(false);
   const [isTryingOn, setIsTryingOn] = useState(false);
   const isDesktopWeb = Platform.OS === 'web' && width >= 1024;
 
-  const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
-  const canTryOn = Boolean(garmentImageDataUri) && !isPickingImage && !isTryingOn;
+  const sizes: TryOnSize[] = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+  const canTryOn = Boolean(garmentImageUri || garmentImageAssetKey) && !isPickingImage && !isTryingOn;
   const sanitizeMeasurementInput = (value: string) => {
     const normalized = value.replace(',', '.');
     let sanitized = normalized.replace(/[^0-9.]/g, '');
@@ -117,13 +122,15 @@ export default function TryOnScreen() {
       const nextUri = nextAsset?.uri ?? null;
       const dataUri = nextAsset ? asDataUri(nextAsset) : null;
 
-      if (!nextUri || !dataUri) {
+      if (!nextUri) {
         alert('Failed to process selected image. Try another one.');
         return;
       }
 
       setGarmentImageUri(nextUri);
       setGarmentImageDataUri(dataUri);
+      setGarmentImageAsset(nextAsset);
+      setGarmentImageAssetKey(null);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to pick image');
     } finally {
@@ -132,16 +139,39 @@ export default function TryOnScreen() {
   };
 
   const handleTryOn = async () => {
-    if (!garmentImageDataUri || isTryingOn || isPickingImage) {
+    if ((!garmentImageUri && !garmentImageAssetKey && !garmentImageDataUri) || isTryingOn || isPickingImage) {
       return;
     }
 
     try {
       setIsTryingOn(true);
+      let uploadedGarmentAssetKey = garmentImageAssetKey;
+
+      if (garmentImageAsset && !uploadedGarmentAssetKey) {
+        try {
+          uploadedGarmentAssetKey = await uploadImageAssetWithPresign(garmentImageAsset, 'garment_image');
+          setGarmentImageAssetKey(uploadedGarmentAssetKey);
+        } catch (uploadError) {
+          console.warn('Garment image upload via presign failed; fallback to legacy payload', uploadError);
+        }
+      }
+
+      const persistedLegacyGarmentImage =
+        garmentImageDataUri ??
+        (garmentImageUri && (garmentImageUri.startsWith('https://') || garmentImageUri.startsWith('data:'))
+          ? garmentImageUri
+          : null);
+
+      if (!uploadedGarmentAssetKey && !persistedLegacyGarmentImage) {
+        throw new Error('Failed to upload garment image. Try selecting another image.');
+      }
 
       const mannequin = await api.getActiveMannequin();
       const response = await api.createTryOn({
-        garment_image: garmentImageDataUri,
+        ...(uploadedGarmentAssetKey ? { garment_asset_key: uploadedGarmentAssetKey } : {}),
+        ...(!uploadedGarmentAssetKey && persistedLegacyGarmentImage
+          ? { garment_image: persistedLegacyGarmentImage }
+          : {}),
         category: 'top',
         selected_size: size,
         mannequin_version_id: mannequin.id,

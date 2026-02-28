@@ -17,7 +17,8 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     try {
       await signUp(email, password, confirmPassword);
-      router.replace('/onboarding');
+      alert('Check your email and open the verification link to continue.');
+      router.replace('/(auth)/login');
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Registration failed');
     }

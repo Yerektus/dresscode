@@ -10,6 +10,7 @@ import { WheelPicker, type WheelPickerOption } from '@repo/ui/wheel-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as api from '@/services/api';
 import { useAuth } from '@/providers/auth-provider';
+import { uploadImageAssetWithPresign } from '@/services/media-upload';
 
 type BodyGender = 'female' | 'male';
 type BodyShape = api.BodyShape;
@@ -149,6 +150,8 @@ export default function OnboardingScreen() {
   const [bodyShape, setBodyShape] = useState<BodyShapePickerValue>('');
   const [faceImageUri, setFaceImageUri] = useState<string | null>(null);
   const [faceImageDataUri, setFaceImageDataUri] = useState<string | null>(null);
+  const [faceImageAsset, setFaceImageAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [faceImageAssetKey, setFaceImageAssetKey] = useState<string | null>(null);
   const [isPickingFaceImage, setIsPickingFaceImage] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -184,6 +187,8 @@ export default function OnboardingScreen() {
         const storedFaceImage = normalizeStoredFaceImage(existingBodyProfile.face_image);
         setFaceImageUri(storedFaceImage);
         setFaceImageDataUri(storedFaceImage?.startsWith('data:') ? storedFaceImage : null);
+        setFaceImageAssetKey(existingBodyProfile.face_image_asset_key ?? null);
+        setFaceImageAsset(null);
       } catch (error) {
         if (!(error instanceof api.ApiError && error.status === 404)) {
           console.error('Failed to preload body profile for onboarding', error);
@@ -283,13 +288,15 @@ export default function OnboardingScreen() {
 
       const nextUri = nextAsset?.uri ?? null;
       const nextDataUri = nextAsset ? asDataUri(nextAsset) : null;
-      if (!nextUri || !nextDataUri) {
+      if (!nextUri) {
         alert('Failed to process selected face image. Try another one.');
         return;
       }
 
       setFaceImageUri(nextUri);
       setFaceImageDataUri(nextDataUri);
+      setFaceImageAsset(nextAsset);
+      setFaceImageAssetKey(null);
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to pick image');
     } finally {
@@ -328,9 +335,20 @@ export default function OnboardingScreen() {
       (faceImageUri && (faceImageUri.startsWith('https://') || faceImageUri.startsWith('data:'))
         ? faceImageUri
         : null);
+    let uploadedFaceAssetKey = faceImageAssetKey;
 
     try {
       setIsGenerating(true);
+
+      if (faceImageAsset && !uploadedFaceAssetKey) {
+        try {
+          uploadedFaceAssetKey = await uploadImageAssetWithPresign(faceImageAsset, 'face_image');
+          setFaceImageAssetKey(uploadedFaceAssetKey);
+        } catch (uploadError) {
+          console.warn('Face image upload via presign failed; fallback to legacy payload', uploadError);
+        }
+      }
+
       await api.saveBodyProfile({
         height_cm: parsedHeight,
         weight_kg: parsedWeight,
@@ -341,7 +359,8 @@ export default function OnboardingScreen() {
         ...(sleeve ? { sleeve_cm: parseFloat(sleeve) } : {}),
         ...(inseam ? { inseam_cm: parseFloat(inseam) } : {}),
         ...(bodyShape ? { body_shape: bodyShape } : {}),
-        ...(persistedFaceImage ? { face_image: persistedFaceImage } : {}),
+        ...(uploadedFaceAssetKey ? { face_image_asset_key: uploadedFaceAssetKey } : {}),
+        ...(!uploadedFaceAssetKey && persistedFaceImage ? { face_image: persistedFaceImage } : {}),
       });
       const generatedMannequin = await api.generateMannequin();
       router.replace({

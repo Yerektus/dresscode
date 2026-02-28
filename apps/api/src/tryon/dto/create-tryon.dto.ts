@@ -1,9 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
 
 export class CreateTryOnDto {
+  @ValidateIf((value: CreateTryOnDto) => !value.garment_asset_key)
   @IsString()
-  garment_image!: string;
+  garment_image?: string;
+
+  @ValidateIf((value: CreateTryOnDto) => !value.garment_image)
+  @IsString()
+  garment_asset_key?: string;
 
   @IsString()
   category!: string;

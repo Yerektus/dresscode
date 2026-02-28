@@ -1,39 +1,34 @@
+import type {
+  AuthResponseDto,
+  BodyGender,
+  BodyProfileDto,
+  BodyShape,
+  CreateBodyProfileDto,
+  CreateTryOnRequestDto,
+  CreditPackageCode,
+  MessageResponseDto,
+  PendingEmailVerificationResponseDto,
+  RegisterResponseDto,
+  ResendVerificationDto,
+  UserDto,
+  VerifyEmailDto,
+  TryOnHistoryItemDto,
+  TryOnRequestDto,
+  TryOnResultDto,
+} from '@repo/core';
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
-export type BodyGender = 'female' | 'male';
-export type BodyShape = 'hourglass' | 'pear' | 'apple' | 'rectangle' | 'inverted_triangle';
-export type CreditPackageCode = 'credits_20' | 'credits_50' | 'credits_100';
+export type { BodyGender, BodyShape, CreditPackageCode };
+export type { CreateBodyProfileDto, CreateTryOnRequestDto, ResendVerificationDto, VerifyEmailDto };
 
 let authToken: string | null = null;
 let unauthorizedHandler: (() => void) | null = null;
 
-export interface AuthUser {
-  id: string;
-  email: string;
-  created_at: string;
-  updated_at: string;
-}
+export type AuthUser = UserDto;
+export type AuthResponse = AuthResponseDto;
+export type RegisterResponse = RegisterResponseDto;
 
-export interface AuthResponse {
-  access_token: string;
-  user: AuthUser;
-}
-
-export interface BodyProfileResponse {
-  id: string;
-  user_id: string;
-  height_cm: number;
-  weight_kg: number;
-  chest_cm?: number | null;
-  waist_cm?: number | null;
-  hips_cm?: number | null;
-  sleeve_cm?: number | null;
-  inseam_cm?: number | null;
-  body_shape?: BodyShape | null;
-  gender?: BodyGender | null;
-  face_image?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type BodyProfileResponse = BodyProfileDto;
 
 export interface SubscriptionResponse {
   id: string;
@@ -60,31 +55,18 @@ export interface SubscriptionResponse {
   updated_at: string;
 }
 
-export interface TryOnRequestResponse {
-  id: string;
-  user_id: string;
-  mannequin_version_id: string;
-  garment_image_url: string;
-  category: string;
-  selected_size: string;
-  chest_cm: number | null;
-  waist_cm: number | null;
-  hips_cm: number | null;
-  created_at: string;
-}
+export type TryOnRequestResponse = TryOnRequestDto;
+export type TryOnResultResponse = TryOnResultDto;
+export type TryOnHistoryItemResponse = TryOnHistoryItemDto;
 
-export interface TryOnResultResponse {
-  id: string;
-  request_id: string;
-  result_image_url: string;
-  fit_probability: number;
-  fit_breakdown_json: Record<string, number> | null;
-  model_version: string;
-  created_at: string;
-}
+export type MediaUploadPurpose = 'face_image' | 'garment_image';
 
-export interface TryOnHistoryItemResponse extends TryOnRequestResponse {
-  result: TryOnResultResponse | null;
+export interface PresignUploadResponse {
+  upload_url: string;
+  asset_key: string;
+  asset_url: string;
+  expires_at: string;
+  required_headers: Record<string, string>;
 }
 
 export function setAuthToken(token: string | null) {
@@ -162,7 +144,7 @@ export class ApiError extends Error {
 
 // Auth
 export function register(email: string, password: string, password_confirmation: string) {
-  return request<AuthResponse>('/auth/register', {
+  return request<RegisterResponse>('/auth/register', {
     method: 'POST',
     body: JSON.stringify({ email, password, password_confirmation }),
   });
@@ -201,24 +183,46 @@ export function updateMePassword(
   });
 }
 
+export function verifyEmail(token: string) {
+  const payload: VerifyEmailDto = { token };
+  return request<AuthResponse>('/auth/verify-email', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resendVerification(email: string) {
+  const payload: ResendVerificationDto = { email };
+  return request<MessageResponseDto>('/auth/resend-verification', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resendPendingEmailVerification() {
+  return request<PendingEmailVerificationResponseDto>('/auth/me/email/resend-verification', {
+    method: 'POST',
+  });
+}
+
 // Body Profile
 export function getBodyProfile() {
   return request<BodyProfileResponse>('/body-profile');
 }
 
-export function saveBodyProfile(data: {
-  height_cm: number;
-  weight_kg: number;
-  chest_cm?: number;
-  waist_cm?: number;
-  hips_cm?: number;
-  sleeve_cm?: number;
-  inseam_cm?: number;
-  body_shape?: string;
-  gender?: BodyGender;
-  face_image?: string;
-}) {
+export function saveBodyProfile(data: CreateBodyProfileDto) {
   return request('/body-profile', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function createPresignedUpload(data: {
+  purpose: MediaUploadPurpose;
+  content_type: string;
+  size_bytes: number;
+}) {
+  return request<PresignUploadResponse>('/media/presign-upload', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -236,15 +240,7 @@ export function getActiveMannequin() {
 }
 
 // Try-On
-export function createTryOn(data: {
-  garment_image: string;
-  category: string;
-  selected_size: string;
-  mannequin_version_id: string;
-  chest_cm?: number;
-  waist_cm?: number;
-  hips_cm?: number;
-}) {
+export function createTryOn(data: CreateTryOnRequestDto) {
   return request<{
     request: TryOnRequestResponse;
     result: TryOnResultResponse;

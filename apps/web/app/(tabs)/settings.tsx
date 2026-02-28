@@ -132,6 +132,7 @@ export default function SettingsScreen() {
   const { updateCurrentUser } = useAuth();
   const [emailInput, setEmailInput] = useState('');
   const [savedEmail, setSavedEmail] = useState('');
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
@@ -140,6 +141,7 @@ export default function SettingsScreen() {
   const [mannequinImageUrl, setMannequinImageUrl] = useState<string | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [isResendingPendingEmail, setIsResendingPendingEmail] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [isBuyingCredits, setIsBuyingCredits] = useState(false);
   const [alertState, setAlertState] = useState<SettingsAlertState | null>(null);
@@ -166,6 +168,7 @@ export default function SettingsScreen() {
       if (meResult.status === 'fulfilled') {
         setEmailInput(meResult.value.email);
         setSavedEmail(meResult.value.email);
+        setPendingEmail(meResult.value.pending_email ?? null);
         updateCurrentUser(meResult.value);
       }
 
@@ -325,12 +328,38 @@ export default function SettingsScreen() {
       const updatedUser = await api.updateMeEmail(normalizedEmail);
       setEmailInput(updatedUser.email);
       setSavedEmail(updatedUser.email);
+      setPendingEmail(updatedUser.pending_email ?? null);
       updateCurrentUser(updatedUser);
-      showInfoAlert('Success', 'Email updated successfully');
+      showInfoAlert(
+        'Success',
+        updatedUser.pending_email
+          ? `Verification link sent to ${updatedUser.pending_email}`
+          : 'Email updated successfully',
+      );
     } catch (error) {
       showInfoAlert('Error', error instanceof Error ? error.message : 'Failed to update email');
     } finally {
       setIsSavingEmail(false);
+    }
+  };
+
+  const handleResendPendingEmailVerification = async () => {
+    if (isInitialLoading || isSavingEmail || isResendingPendingEmail || !pendingEmail) {
+      return;
+    }
+
+    try {
+      setIsResendingPendingEmail(true);
+      const response = await api.resendPendingEmailVerification();
+      setPendingEmail(response.pending_email);
+      showInfoAlert('Success', response.message);
+    } catch (error) {
+      showInfoAlert(
+        'Error',
+        error instanceof Error ? error.message : 'Failed to resend verification',
+      );
+    } finally {
+      setIsResendingPendingEmail(false);
     }
   };
 
@@ -436,11 +465,29 @@ export default function SettingsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             placeholder="you@example.com"
-            editable={!isInitialLoading && !isSavingEmail}
+            editable={!isInitialLoading && !isSavingEmail && !isResendingPendingEmail}
             onBlur={handleEmailChangeRequest}
             onSubmitEditing={handleEmailChangeRequest}
           />
         </View>
+        {pendingEmail ? (
+          <View style={styles.pendingEmailRow}>
+            <Text style={styles.pendingEmailText}>
+              Pending confirmation: {pendingEmail}
+            </Text>
+            <Button
+              variant="secondary"
+              style={styles.pendingEmailButton}
+              onPress={() => {
+                void handleResendPendingEmailVerification();
+              }}
+              loading={isResendingPendingEmail}
+              disabled={isResendingPendingEmail}
+            >
+              Resend
+            </Button>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.section}>
@@ -809,6 +856,22 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: 0,
     marginBottom: 0,
+  },
+  pendingEmailRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  pendingEmailText: {
+    flex: 1,
+    fontSize: 13,
+    color: uiColors.textMuted,
+    lineHeight: 18,
+  },
+  pendingEmailButton: {
+    minWidth: 96,
   },
   subscriptionCard: {
     width: '100%',

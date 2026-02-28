@@ -8,6 +8,7 @@ import { BodyProfileModule } from './body-profile/body-profile.module';
 import { MannequinModule } from './mannequin/mannequin.module';
 import { TryOnModule } from './tryon/tryon.module';
 import { SubscriptionModule } from './subscription/subscription.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { SubscriptionModule } from './subscription/subscription.module';
     MannequinModule,
     TryOnModule,
     SubscriptionModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [

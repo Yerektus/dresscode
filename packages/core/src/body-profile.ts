@@ -13,6 +13,8 @@ export interface BodyProfileDto {
   inseam_cm?: number | null;
   body_shape?: BodyShape | null;
   gender?: BodyGender | null;
+  face_image?: string | null;
+  face_image_asset_key?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +29,8 @@ export interface CreateBodyProfileDto {
   inseam_cm?: number;
   body_shape?: BodyShape;
   gender?: BodyGender;
+  face_image?: string;
+  face_image_asset_key?: string;
 }
 
 export interface UpdateBodyProfileDto extends Partial<CreateBodyProfileDto> {}

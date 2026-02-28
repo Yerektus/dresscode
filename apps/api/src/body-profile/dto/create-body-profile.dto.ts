@@ -43,4 +43,8 @@ export class CreateBodyProfileDto {
   @IsOptional()
   @IsString()
   face_image?: string;
+
+  @IsOptional()
+  @IsString()
+  face_image_asset_key?: string;
 }

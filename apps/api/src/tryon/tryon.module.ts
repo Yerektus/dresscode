@@ -6,9 +6,13 @@ import { Subscription } from '../entities/subscription.entity';
 import { MannequinVersion } from '../entities/mannequin-version.entity';
 import { TryOnService } from './tryon.service';
 import { TryOnController } from './tryon.controller';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TryOnRequest, TryOnResult, Subscription, MannequinVersion])],
+  imports: [
+    TypeOrmModule.forFeature([TryOnRequest, TryOnResult, Subscription, MannequinVersion]),
+    StorageModule,
+  ],
   controllers: [TryOnController],
   providers: [TryOnService],
 })

@@ -48,6 +48,7 @@ export default function RootLayout() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="onboarding-result" />
         <Stack.Screen name="tryon-result" />
+        <Stack.Screen name="verify-email" />
       </Stack>
     </AuthProvider>
   );

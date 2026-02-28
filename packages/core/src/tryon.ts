@@ -15,14 +15,21 @@ export interface TryOnRequestDto {
   garment_image_url: string;
   category: GarmentCategory;
   selected_size: ClothingSize;
+  chest_cm?: number | null;
+  waist_cm?: number | null;
+  hips_cm?: number | null;
   created_at: string;
 }
 
 export interface CreateTryOnRequestDto {
-  garment_image: string; // base64 or URL
+  garment_image?: string; // legacy fallback: base64 Data URI or HTTPS URL
+  garment_asset_key?: string;
   category: GarmentCategory;
   selected_size: ClothingSize;
   mannequin_version_id: string;
+  chest_cm?: number;
+  waist_cm?: number;
+  hips_cm?: number;
 }
 
 export interface FitBreakdown {
@@ -44,7 +51,6 @@ export interface TryOnResultDto {
   created_at: string;
 }
 
-export interface TryOnHistoryItemDto {
-  request: TryOnRequestDto;
-  result: TryOnResultDto;
+export interface TryOnHistoryItemDto extends TryOnRequestDto {
+  result: TryOnResultDto | null;
 }
