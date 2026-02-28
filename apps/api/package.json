@@ -9,7 +9,7 @@
     "start:prod": "node dist/main",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",
-    "typeorm": "ts-node -r tsconfig-paths/register ../../node_modules/typeorm/cli.js",
+    "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts"
   },

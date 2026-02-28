@@ -1,19 +1,33 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import nodemailer, { type Transporter } from 'nodemailer';
 
 interface SendEmailVerificationInput {
   to: string;
   verifyUrl: string;
 }
 
+interface MailTransport {
+  sendMail(input: {
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+  }): Promise<unknown>;
+}
+
 @Injectable()
 export class MailService {
   private readonly from = process.env.SMTP_FROM?.trim() || '';
-  private readonly transporter: Transporter | null;
+  private readonly transporter: MailTransport | null;
 
   constructor() {
     const host = process.env.SMTP_HOST?.trim();
     if (!host) {
+      this.transporter = null;
+      return;
+    }
+    const nodemailerModule = this.resolveNodemailerModule();
+    if (!nodemailerModule) {
       this.transporter = null;
       return;
     }
@@ -24,7 +38,7 @@ export class MailService {
     const user = process.env.SMTP_USER?.trim();
     const password = process.env.SMTP_PASSWORD;
 
-    this.transporter = nodemailer.createTransport({
+    this.transporter = nodemailerModule.createTransport({
       host,
       port,
       secure,
@@ -78,5 +92,27 @@ export class MailService {
     }
 
     return fallback;
+  }
+
+  private resolveNodemailerModule():
+    | {
+        createTransport(config: Record<string, unknown>): MailTransport;
+      }
+    | null {
+    try {
+      const loaded = require('nodemailer') as {
+        createTransport?: (config: Record<string, unknown>) => MailTransport;
+      };
+
+      if (typeof loaded.createTransport !== 'function') {
+        return null;
+      }
+
+      return {
+        createTransport: loaded.createTransport,
+      };
+    } catch {
+      return null;
+    }
   }
 }

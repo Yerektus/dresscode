@@ -25,7 +25,7 @@ export interface PublicUser {
   updated_at: Date;
 }
 
-interface RegisterResponse {
+export interface RegisterResponse {
   message: string;
   verification_required: true;
 }

@@ -20,7 +20,7 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   email_verified_at: Date | null;
 
-  @Column({ nullable: true, unique: true })
+  @Column({ type: 'varchar', nullable: true, unique: true })
   pending_email: string | null;
 
   @CreateDateColumn()
