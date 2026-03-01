@@ -160,19 +160,61 @@ export class MannequinService {
     profile: BodyProfile,
     modelPath: string,
   ): Promise<string> {
-    const result = await this.ws.submitAndPoll(modelPath, {
-      prompt: this.buildCinematicPrompt(profile),
-      size: this.waveSpeedImageSize,
-      seed: -1,
-      enable_prompt_expansion: true,
-      enable_base64_output: false,
-    });
+    const payloadCandidates = this.buildMannequinPayloadCandidates(profile);
+    let lastPayloadError: string | null = null;
 
-    const imageUrl = this.ws.extractImageUrl(result.outputs) ?? this.ws.extractImageUrl(result.urls);
-    if (!imageUrl) {
-      throw new ServiceUnavailableException('WaveSpeed returned completed status without image');
+    for (const payload of payloadCandidates) {
+      try {
+        const result = await this.ws.submitAndPoll(modelPath, payload);
+        const imageUrl = this.ws.extractImageUrl(result.outputs) ?? this.ws.extractImageUrl(result.urls);
+        if (!imageUrl) {
+          throw new ServiceUnavailableException('WaveSpeed returned completed status without image');
+        }
+        return imageUrl;
+      } catch (error) {
+        lastPayloadError = this.ws.extractErrorText(error);
+        if (!this.ws.isPayloadSchemaError(error)) {
+          throw error;
+        }
+      }
     }
-    return imageUrl;
+
+    throw new ServiceUnavailableException(
+      `WaveSpeed mannequin request failed for model "${modelPath}". Last error: ${lastPayloadError ?? 'unknown'}`,
+    );
+  }
+
+  private buildMannequinPayloadCandidates(profile: BodyProfile): Array<Record<string, unknown>> {
+    const prompt = this.buildCinematicPrompt(profile);
+
+    return [
+      {
+        prompt,
+        size: this.waveSpeedImageSize,
+        seed: -1,
+        enable_prompt_expansion: true,
+        enable_base64_output: false,
+      },
+      {
+        prompt,
+        size: this.waveSpeedImageSize,
+        seed: -1,
+        enable_base64_output: false,
+      },
+      {
+        prompt,
+        size: this.waveSpeedImageSize,
+        seed: -1,
+      },
+      {
+        prompt,
+        size: this.waveSpeedImageSize,
+      },
+      {
+        prompt,
+        aspect_ratio: this.waveSpeedImageAspectRatio,
+      },
+    ];
   }
 
   private async generateMannequinImageWithFaceModel(
