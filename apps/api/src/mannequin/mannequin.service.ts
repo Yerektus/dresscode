@@ -115,7 +115,10 @@ export class MannequinService {
     const assetKey = this.storageService.extractAssetKeyFromReference(value);
     if (assetKey) {
       const normalizedKey = this.storageService.validateAssetKey(assetKey, userId, 'face_image');
-      return this.storageService.createSignedReadUrl(normalizedKey);
+      // Fetch the image server-side and return as base64 data URI so that
+      // external services like WaveSpeed (which cannot reach localhost) can
+      // receive the image content inline rather than via a private S3 URL.
+      return this.storageService.getObjectAsDataUri(normalizedKey);
     }
 
     return this.normalizeWaveSpeedImageInput(value, 'Face image');

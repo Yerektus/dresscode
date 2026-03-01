@@ -212,7 +212,7 @@ export class TryOnService {
       );
 
       return {
-        waveSpeedInput: await this.storageService.createSignedReadUrl(normalizedKey),
+        waveSpeedInput: await this.storageService.getObjectAsDataUri(normalizedKey),
         storedReference: this.storageService.toStoredAssetReference(normalizedKey),
       };
     }
