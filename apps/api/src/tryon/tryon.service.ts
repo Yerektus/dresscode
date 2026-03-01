@@ -7,30 +7,15 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { MannequinVersion } from '../entities/mannequin-version.entity';
 import { TryOnRequest } from '../entities/try-on-request.entity';
 import { TryOnResult } from '../entities/try-on-result.entity';
-import { Subscription } from '../entities/subscription.entity';
-import { estimateDataUriBytes, isDataUri } from '../storage/data-uri';
+import { isDataUri } from '../storage/data-uri';
 import { StorageService } from '../storage/storage.service';
+import { SubscriptionService } from '../subscription/subscription.service';
+import { MannequinService } from '../mannequin/mannequin.service';
+import { WaveSpeedService } from '../wavespeed/wavespeed.service';
+import { parsePositiveInt, normalizeWaveSpeedImageInput, assertLegacyDataUriSize } from '../common/image-input.utils';
 import { CreateTryOnDto } from './dto/create-tryon.dto';
-
-interface WaveSpeedApiEnvelope<T = unknown> {
-  code?: number;
-  message?: unknown;
-  data?: T;
-  [key: string]: unknown;
-}
-
-interface WaveSpeedPredictionData {
-  id?: string;
-  status?: string;
-  outputs?: unknown;
-  urls?: unknown;
-  error?: unknown;
-  message?: unknown;
-  [key: string]: unknown;
-}
 
 interface TryOnInferenceResult {
   modelPath: string;
@@ -60,18 +45,9 @@ interface FitProbabilityAiInput {
 
 @Injectable()
 export class TryOnService {
-  private readonly waveSpeedApiBaseUrl =
-    process.env.WAVESPEED_API_BASE_URL ?? 'https://api.wavespeed.ai/api/v3';
-  private readonly waveSpeedModelPaths = this.buildModelPathCandidates(
-    process.env.WAVESPEED_TRYON_MODEL_PATH ?? process.env.WAVESPEED_MODEL_PATH,
-    process.env.WAVESPEED_TRYON_MODEL_FALLBACK_PATHS ??
-      process.env.WAVESPEED_MODEL_FALLBACK_PATHS,
-  );
-  private readonly waveSpeedFitModelPaths = this.buildModelPathCandidates(
-    process.env.WAVESPEED_FIT_MODEL_PATH ?? '/wavespeed-ai/any-llm',
-    process.env.WAVESPEED_FIT_MODEL_FALLBACK_PATHS,
-  );
-  private readonly waveSpeedFitMaxTokens = this.parsePositiveInt(
+  private readonly waveSpeedModelPaths: string[];
+  private readonly waveSpeedFitModelPaths: string[];
+  private readonly waveSpeedFitMaxTokens = parsePositiveInt(
     process.env.WAVESPEED_FIT_MAX_TOKENS,
     48,
   );
@@ -80,15 +56,15 @@ export class TryOnService {
   private readonly waveSpeedImageSize = this.normalizeImageSize(
     process.env.WAVESPEED_IMAGE_SIZE ?? '1024*1536',
   );
-  private readonly waveSpeedPollIntervalMs = this.parsePositiveInt(
-    process.env.WAVESPEED_POLL_INTERVAL_MS,
-    1500,
-  );
-  private readonly waveSpeedTimeoutMs = this.parsePositiveInt(
+  private readonly waveSpeedTimeoutMs = parsePositiveInt(
     process.env.WAVESPEED_TIMEOUT_MS,
     120000,
   );
-  private readonly legacyDataUriMaxBytes = this.parsePositiveInt(
+  private readonly waveSpeedPollIntervalMs = parsePositiveInt(
+    process.env.WAVESPEED_POLL_INTERVAL_MS,
+    1500,
+  );
+  private readonly legacyDataUriMaxBytes = parsePositiveInt(
     process.env.LEGACY_DATA_URI_MAX_BYTES,
     6 * 1024 * 1024,
   );
@@ -96,28 +72,33 @@ export class TryOnService {
   constructor(
     @InjectRepository(TryOnRequest)
     private readonly requestRepo: Repository<TryOnRequest>,
-    @InjectRepository(Subscription)
-    private readonly subscriptionRepo: Repository<Subscription>,
-    @InjectRepository(MannequinVersion)
-    private readonly mannequinRepo: Repository<MannequinVersion>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
-  ) {}
+    private readonly subscriptionService: SubscriptionService,
+    private readonly mannequinService: MannequinService,
+    private readonly ws: WaveSpeedService,
+  ) {
+    this.waveSpeedModelPaths = this.ws.buildModelPathCandidates(
+      process.env.WAVESPEED_TRYON_MODEL_PATH ?? process.env.WAVESPEED_MODEL_PATH,
+      process.env.WAVESPEED_TRYON_MODEL_FALLBACK_PATHS ??
+        process.env.WAVESPEED_MODEL_FALLBACK_PATHS,
+    );
+    this.waveSpeedFitModelPaths = this.ws.buildModelPathCandidates(
+      process.env.WAVESPEED_FIT_MODEL_PATH ?? '/wavespeed-ai/any-llm',
+      process.env.WAVESPEED_FIT_MODEL_FALLBACK_PATHS,
+    );
+  }
 
   async create(userId: string, dto: CreateTryOnDto) {
-    await this.ensureBillingAccount(userId);
+    await this.subscriptionService.ensureBillingAccount(userId);
 
-    const mannequin = await this.mannequinRepo.findOne({
-      where: { id: dto.mannequin_version_id, user_id: userId },
-    });
+    const mannequin = await this.mannequinService.findByIdAndUser(dto.mannequin_version_id, userId);
     if (!mannequin) {
       throw new NotFoundException('Mannequin version not found');
     }
 
-    const subscription = await this.subscriptionRepo.findOne({
-      where: { user_id: userId },
-    });
+    const subscription = await this.subscriptionService.findByUser(userId);
     if (!subscription || subscription.credits_balance < 1) {
       throw new ForbiddenException('Not enough credits. Buy credits in Billing.');
     }
@@ -145,17 +126,7 @@ export class TryOnService {
     });
 
     return this.dataSource.transaction(async (manager) => {
-      const debitResult = await manager
-        .createQueryBuilder()
-        .update(Subscription)
-        .set({ credits_balance: () => 'credits_balance - 1' })
-        .where('user_id = :userId', { userId })
-        .andWhere('credits_balance >= 1')
-        .execute();
-
-      if (!debitResult.affected) {
-        throw new ForbiddenException('Not enough credits. Buy credits in Billing.');
-      }
+      await this.subscriptionService.debitCredit(userId, manager);
 
       const request = manager.getRepository(TryOnRequest).create({
         user_id: userId,
@@ -212,7 +183,7 @@ export class TryOnService {
       );
 
       return {
-        waveSpeedInput: await this.storageService.createSignedReadUrl(normalizedKey),
+        waveSpeedInput: await this.storageService.getObjectAsDataUri(normalizedKey),
         storedReference: this.storageService.toStoredAssetReference(normalizedKey),
       };
     }
@@ -222,32 +193,15 @@ export class TryOnService {
       throw new BadRequestException('Either garment_asset_key or garment_image is required');
     }
 
-    const normalizedLegacyValue = this.normalizeWaveSpeedImageInput(legacyValue, 'Garment image');
+    const normalizedLegacyValue = normalizeWaveSpeedImageInput(legacyValue, 'Garment image', this.legacyDataUriMaxBytes);
     if (isDataUri(normalizedLegacyValue)) {
-      this.assertLegacyDataUriSize(normalizedLegacyValue, 'Garment image');
+      assertLegacyDataUriSize(normalizedLegacyValue, 'Garment image', this.legacyDataUriMaxBytes);
     }
 
     return {
       waveSpeedInput: normalizedLegacyValue,
       storedReference: this.toStoredGarmentReference(normalizedLegacyValue),
     };
-  }
-
-  private async ensureBillingAccount(userId: string) {
-    await this.dataSource
-      .createQueryBuilder()
-      .insert()
-      .into(Subscription)
-      .values({
-        user_id: userId,
-        provider: 'webkassa',
-        status: 'active',
-        plan_code: 'free',
-        current_period_end: null,
-        credits_balance: 10,
-      })
-      .orIgnore()
-      .execute();
   }
 
   private async generateTryOnResult(
@@ -257,13 +211,15 @@ export class TryOnService {
     selectedSize: string,
     measurements: TryOnMeasurements,
   ): Promise<TryOnInferenceResult> {
-    const normalizedMannequinImage = this.normalizeWaveSpeedImageInput(
+    const normalizedMannequinImage = normalizeWaveSpeedImageInput(
       mannequinFrontImageUrl,
       'Mannequin image',
+      this.legacyDataUriMaxBytes,
     );
-    const normalizedGarmentImage = this.normalizeWaveSpeedImageInput(
+    const normalizedGarmentImage = normalizeWaveSpeedImageInput(
       garmentImage,
       'Garment image',
+      this.legacyDataUriMaxBytes,
     );
 
     if (this.waveSpeedModelPaths.length === 0) {
@@ -285,11 +241,11 @@ export class TryOnService {
           measurements,
         );
       } catch (error) {
-        if (!this.isModelMissingError(error) && !this.isInputImageFetchError(error)) {
+        if (!this.ws.isModelMissingError(error) && !this.ws.isInputImageFetchError(error)) {
           throw error;
         }
 
-        lastModelError = this.extractErrorText(error);
+        lastModelError = this.ws.extractErrorText(error);
       }
     }
 
@@ -317,79 +273,29 @@ export class TryOnService {
     let lastPayloadError: string | null = null;
     for (const payload of payloadCandidates) {
       try {
-        const submitPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
-          this.resolveWaveSpeedUrl(modelPath),
-          {
-            method: 'POST',
-            body: JSON.stringify(payload),
-          },
+        const result = await this.ws.submitAndPoll(
+          modelPath,
+          payload,
+          this.waveSpeedTimeoutMs,
+          this.waveSpeedPollIntervalMs,
         );
 
-        const submission = this.normalizePrediction(submitPayload);
-        const immediateImage =
-          this.extractImageUrl(submission.outputs) ?? this.extractImageUrl(submission.urls);
-
-        if (this.isCompletedStatus(submission.status) && immediateImage) {
-          return {
-            modelPath,
-            resultImageUrl: immediateImage,
-            fitProbability: this.extractFitProbability(
-              submission.outputs,
-              category,
-              selectedSize,
-            ),
-            fitBreakdown: this.extractFitBreakdown(submission.outputs),
-          };
-        }
-
-        if (this.isFailedStatus(submission.status, submission.error ?? submission.message)) {
+        const resultImageUrl = this.ws.extractImageUrl(result.outputs) ?? this.ws.extractImageUrl(result.urls);
+        if (!resultImageUrl) {
           throw new ServiceUnavailableException(
-            `WaveSpeed try-on failed: ${this.stringifyUnknown(submission.error ?? submission.message)}`,
+            'WaveSpeed returned completed try-on status without result image',
           );
         }
 
-        if (!submission.id) {
-          throw new ServiceUnavailableException('WaveSpeed did not return task id for try-on');
-        }
-
-        const deadline = Date.now() + this.waveSpeedTimeoutMs;
-        while (Date.now() < deadline) {
-          await this.sleep(this.waveSpeedPollIntervalMs);
-
-          const resultPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
-            this.resolveWaveSpeedUrl(`/predictions/${submission.id}/result`),
-            { method: 'GET' },
-          );
-
-          const result = this.normalizePrediction(resultPayload);
-          const resultImageUrl = this.extractImageUrl(result.outputs) ?? this.extractImageUrl(result.urls);
-
-          if (this.isCompletedStatus(result.status)) {
-            if (!resultImageUrl) {
-              throw new ServiceUnavailableException(
-                'WaveSpeed returned completed try-on status without result image',
-              );
-            }
-
-            return {
-              modelPath,
-              resultImageUrl,
-              fitProbability: this.extractFitProbability(result.outputs, category, selectedSize),
-              fitBreakdown: this.extractFitBreakdown(result.outputs),
-            };
-          }
-
-          if (this.isFailedStatus(result.status, result.error ?? result.message)) {
-            throw new ServiceUnavailableException(
-              `WaveSpeed try-on failed: ${this.stringifyUnknown(result.error ?? result.message)}`,
-            );
-          }
-        }
-
-        throw new ServiceUnavailableException('WaveSpeed try-on generation timed out');
+        return {
+          modelPath,
+          resultImageUrl,
+          fitProbability: this.extractFitProbability(result.outputs, category, selectedSize),
+          fitBreakdown: this.extractFitBreakdown(result.outputs),
+        };
       } catch (error) {
-        lastPayloadError = this.extractErrorText(error);
-        if (!this.isPayloadSchemaError(error)) {
+        lastPayloadError = this.ws.extractErrorText(error);
+        if (!this.ws.isPayloadSchemaError(error)) {
           throw error;
         }
       }
@@ -412,7 +318,7 @@ export class TryOnService {
       try {
         return await this.calculateFitProbabilityWithAiModel(modelPath, input);
       } catch (error) {
-        lastModelError = this.extractErrorText(error);
+        lastModelError = this.ws.extractErrorText(error);
       }
     }
 
@@ -426,9 +332,9 @@ export class TryOnService {
     input: FitProbabilityAiInput,
   ): Promise<number> {
     const prompt = this.buildFitProbabilityPrompt(input);
-    const anyLlmModelPath = this.normalizeModelPathCandidate('/wavespeed-ai/any-llm');
+    const anyLlmModelPath = this.ws.normalizeModelPathCandidate('/wavespeed-ai/any-llm');
     const isAnyLlmModel =
-      this.normalizeModelPathCandidate(modelPath) === anyLlmModelPath;
+      this.ws.normalizeModelPathCandidate(modelPath) === anyLlmModelPath;
     const llmModelCandidates = this.buildFitLlmModelCandidates(this.waveSpeedFitLlmModel);
 
     let lastPayloadError: string | null = null;
@@ -442,67 +348,29 @@ export class TryOnService {
       let tryNextLlmCandidate = false;
       for (const payload of payloadCandidates) {
         try {
-          const submitPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
-            this.resolveWaveSpeedUrl(modelPath),
-            {
-              method: 'POST',
-              body: JSON.stringify(payload),
-            },
+          const result = await this.ws.submitAndPoll(
+            modelPath,
+            payload,
+            this.waveSpeedTimeoutMs,
+            this.waveSpeedPollIntervalMs,
           );
 
-          const submission = this.normalizePrediction(submitPayload);
-          const immediateScore = this.extractAiFitProbability(
-            submission.outputs ?? submission.urls ?? submitPayload,
+          const score = this.extractAiFitProbability(
+            result.outputs ?? result.urls ?? result,
           );
-          if (immediateScore !== null) {
-            return immediateScore;
+          if (score !== null) {
+            return score;
           }
 
-          if (this.isFailedStatus(submission.status, submission.error ?? submission.message)) {
-            throw new ServiceUnavailableException(
-              `WaveSpeed fit-scoring failed: ${this.stringifyUnknown(submission.error ?? submission.message)}`,
-            );
-          }
-
-          if (!submission.id) {
-            throw new ServiceUnavailableException('WaveSpeed fit-scoring did not return task id');
-          }
-
-          const deadline = Date.now() + this.waveSpeedTimeoutMs;
-          while (Date.now() < deadline) {
-            await this.sleep(this.waveSpeedPollIntervalMs);
-
-            const resultPayload = await this.waveSpeedRequest<WaveSpeedApiEnvelope<WaveSpeedPredictionData>>(
-              this.resolveWaveSpeedUrl(`/predictions/${submission.id}/result`),
-              { method: 'GET' },
-            );
-
-            const result = this.normalizePrediction(resultPayload);
-            const score = this.extractAiFitProbability(result.outputs ?? result.urls ?? resultPayload);
-            if (score !== null) {
-              return score;
-            }
-
-            if (this.isCompletedStatus(result.status)) {
-              throw new ServiceUnavailableException(
-                'WaveSpeed fit-scoring completed without numeric fit_probability output',
-              );
-            }
-
-            if (this.isFailedStatus(result.status, result.error ?? result.message)) {
-              throw new ServiceUnavailableException(
-                `WaveSpeed fit-scoring failed: ${this.stringifyUnknown(result.error ?? result.message)}`,
-              );
-            }
-          }
-
-          throw new ServiceUnavailableException('WaveSpeed fit-scoring timed out');
+          throw new ServiceUnavailableException(
+            'WaveSpeed fit-scoring completed without numeric fit_probability output',
+          );
         } catch (error) {
-          lastPayloadError = this.extractErrorText(error);
-          if (this.isPayloadSchemaError(error)) {
+          lastPayloadError = this.ws.extractErrorText(error);
+          if (this.ws.isPayloadSchemaError(error)) {
             continue;
           }
-          if (isAnyLlmModel && this.isModelMissingError(error)) {
+          if (isAnyLlmModel && this.ws.isModelMissingError(error)) {
             tryNextLlmCandidate = true;
             break;
           }
@@ -532,8 +400,8 @@ export class TryOnService {
       { role: 'user', content: prompt },
     ];
     const mergedPrompt = `${systemPrompt}\n${prompt}`;
-    const normalizedModelPath = this.normalizeModelPathCandidate(modelPath);
-    const anyLlmModelPath = this.normalizeModelPathCandidate('/wavespeed-ai/any-llm');
+    const normalizedModelPath = this.ws.normalizeModelPathCandidate(modelPath);
+    const anyLlmModelPath = this.ws.normalizeModelPathCandidate('/wavespeed-ai/any-llm');
 
     if (normalizedModelPath === anyLlmModelPath) {
       return [
@@ -651,7 +519,7 @@ export class TryOnService {
 
   private buildMannequinProfilePrompt(snapshot: Record<string, unknown> | null): string {
     const source = snapshot ?? {};
-    const genderRaw = this.asString(source.gender)?.toLowerCase();
+    const genderRaw = this.ws.asString(source.gender)?.toLowerCase();
     const gender =
       genderRaw === 'male' || genderRaw === 'female' ? genderRaw : 'not provided';
 
@@ -716,7 +584,7 @@ export class TryOnService {
       return null;
     }
 
-    const parsedTextJson = this.asRecord(this.tryParseJson(textOutput)) ?? this.extractJsonObjectFromText(textOutput);
+    const parsedTextJson = this.ws.asRecord(this.ws.tryParseJson(textOutput)) ?? this.extractJsonObjectFromText(textOutput);
     const numericFromJson = this.findFirstNumericValue(parsedTextJson, [
       'fit_probability',
       'fitProbability',
@@ -733,13 +601,13 @@ export class TryOnService {
   private extractJsonObjectFromText(text: string): Record<string, unknown> | null {
     const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fencedMatch?.[1]) {
-      const parsedFence = this.asRecord(this.tryParseJson(fencedMatch[1]));
+      const parsedFence = this.ws.asRecord(this.ws.tryParseJson(fencedMatch[1]));
       if (parsedFence) {
         return parsedFence;
       }
     }
 
-    const parsedWhole = this.asRecord(this.tryParseJson(text));
+    const parsedWhole = this.ws.asRecord(this.ws.tryParseJson(text));
     if (parsedWhole) {
       return parsedWhole;
     }
@@ -783,7 +651,7 @@ export class TryOnService {
         depth -= 1;
         if (depth === 0 && startIndex >= 0) {
           const candidate = text.slice(startIndex, index + 1);
-          const parsedCandidate = this.asRecord(this.tryParseJson(candidate));
+          const parsedCandidate = this.ws.asRecord(this.ws.tryParseJson(candidate));
           if (parsedCandidate) {
             return parsedCandidate;
           }
@@ -815,7 +683,6 @@ export class TryOnService {
     ];
 
     return [
-      // FireRed image edit models require root `images`; keep this candidate first.
       {
         prompt,
         size: this.waveSpeedImageSize,
@@ -1136,43 +1003,6 @@ export class TryOnService {
     return Math.round(numeric * 10) / 10;
   }
 
-  private normalizeWaveSpeedImageInput(value: string, fieldName: string): string {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      throw new BadRequestException(`${fieldName} is required`);
-    }
-
-    if (isDataUri(trimmed)) {
-      this.assertLegacyDataUriSize(trimmed, fieldName);
-      return trimmed;
-    }
-
-    try {
-      const parsed = new URL(trimmed);
-      if (parsed.protocol === 'https:') {
-        return parsed.toString();
-      }
-    } catch {
-      // Fall through to validation error below.
-    }
-
-    throw new BadRequestException(
-      `${fieldName} must be a valid HTTPS URL or a Data URI`,
-    );
-  }
-
-  private assertLegacyDataUriSize(value: string, fieldName: string) {
-    const bytes = estimateDataUriBytes(value);
-    if (bytes === null) {
-      throw new BadRequestException(`${fieldName} must be a valid base64 Data URI`);
-    }
-    if (bytes > this.legacyDataUriMaxBytes) {
-      throw new BadRequestException(
-        `${fieldName} exceeds legacy Data URI size limit (${this.legacyDataUriMaxBytes} bytes)`,
-      );
-    }
-  }
-
   private findFirstNumericValue(
     value: unknown,
     preferredKeys: string[],
@@ -1193,7 +1023,7 @@ export class TryOnService {
     }
 
     if (typeof value === 'string') {
-      const parsed = this.tryParseJson(value);
+      const parsed = this.ws.tryParseJson(value);
       if (parsed !== null) {
         return this.findFirstNumericValue(parsed, preferredKeys, depth + 1);
       }
@@ -1246,140 +1076,6 @@ export class TryOnService {
     return `${value.slice(0, maxLength - 3)}...`;
   }
 
-  private async waveSpeedRequest<T>(url: string, init: RequestInit): Promise<T> {
-    const apiKey = process.env.WAVESPEED_API_KEY;
-    if (!apiKey) {
-      throw new ServiceUnavailableException('WAVESPEED_API_KEY is not configured');
-    }
-
-    const response = await fetch(url, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        ...(init.headers ?? {}),
-      },
-    });
-
-    const rawBody = await response.text();
-    const parsedBody = this.tryParseJson(rawBody);
-
-    if (!response.ok) {
-      const message = this.extractErrorMessage(parsedBody) ?? `HTTP ${response.status}`;
-      const code = this.extractErrorCode(parsedBody);
-      const withCode = code !== null ? `[code ${code}] ${message}` : message;
-      throw new ServiceUnavailableException(`WaveSpeed request failed: ${withCode}`);
-    }
-
-    if (!parsedBody || typeof parsedBody !== 'object') {
-      throw new ServiceUnavailableException('WaveSpeed returned invalid JSON');
-    }
-
-    return parsedBody as T;
-  }
-
-  private normalizePrediction(payload: WaveSpeedApiEnvelope<WaveSpeedPredictionData>): WaveSpeedPredictionData {
-    const root = this.asRecord(payload);
-    const nestedData = this.asRecord(root?.data);
-    const source = nestedData ?? root ?? {};
-
-    const status = this.asString(source.status) ?? this.asString(root?.status) ?? undefined;
-    const outputs = source.outputs ?? source.output ?? root?.outputs ?? root?.output;
-    const error = source.error ?? source.message ?? root?.error ?? root?.message;
-    const message = source.message ?? root?.message;
-
-    return {
-      ...source,
-      id: this.asString(source.id) ?? this.asString(root?.id) ?? undefined,
-      status,
-      outputs,
-      urls: source.urls ?? root?.urls,
-      error,
-      message,
-    };
-  }
-
-  private resolveWaveSpeedUrl(pathOrUrl: string): string {
-    if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
-      return pathOrUrl;
-    }
-
-    const normalizedPath = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
-    return `${this.waveSpeedApiBaseUrl}${normalizedPath}`;
-  }
-
-  private extractImageUrl(data: unknown): string | null {
-    if (typeof data === 'string') {
-      return this.normalizeImageReference(data);
-    }
-
-    if (Array.isArray(data)) {
-      for (const item of data) {
-        const nestedUrl = this.extractImageUrl(item);
-        if (nestedUrl) {
-          return nestedUrl;
-        }
-      }
-      return null;
-    }
-
-    if (!data || typeof data !== 'object') {
-      return null;
-    }
-
-    const record = data as Record<string, unknown>;
-    const directCandidates = [
-      record.url,
-      record.download_url,
-      record.image_url,
-      record.result_image_url,
-      record.output_url,
-    ];
-
-    for (const candidate of directCandidates) {
-      if (typeof candidate === 'string' && candidate) {
-        const normalized = this.normalizeImageReference(candidate);
-        if (normalized) {
-          return normalized;
-        }
-      }
-    }
-
-    const nestedCandidates = [record.images, record.output, record.results, record.data];
-    for (const nestedCandidate of nestedCandidates) {
-      const nestedUrl = this.extractImageUrl(nestedCandidate);
-      if (nestedUrl) {
-        return nestedUrl;
-      }
-    }
-
-    return null;
-  }
-
-  private normalizeImageReference(value: string): string | null {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-
-    if (trimmed.startsWith('data:image/')) {
-      return trimmed;
-    }
-
-    if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
-      try {
-        const parsed = new URL(trimmed);
-        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-          return parsed.toString();
-        }
-      } catch {
-        return null;
-      }
-    }
-
-    return null;
-  }
-
   private extractTextOutput(data: unknown): string | null {
     if (typeof data === 'string') {
       const trimmed = data.trim();
@@ -1429,245 +1125,8 @@ export class TryOnService {
     return null;
   }
 
-  private isCompletedStatus(status: string | undefined): boolean {
-    const normalized = (status ?? '').toLowerCase();
-    return normalized === 'completed' || normalized === 'success' || normalized === 'succeeded';
-  }
-
-  private isFailedStatus(status: string | undefined, error: unknown): boolean {
-    const normalized = (status ?? '').toLowerCase();
-    if (
-      normalized === 'failed' ||
-      normalized === 'error' ||
-      normalized === 'cancelled' ||
-      normalized === 'canceled'
-    ) {
-      return true;
-    }
-
-    return !normalized && Boolean(error);
-  }
-
-  private isPayloadSchemaError(error: unknown): boolean {
-    const message = this.extractErrorText(error).toLowerCase();
-    return (
-      message.includes('validation') ||
-      message.includes('invalid') ||
-      message.includes('required') ||
-      message.includes('missing')
-    );
-  }
-
-  private tryParseJson(payload: string): unknown {
-    if (!payload.trim()) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(payload);
-    } catch {
-      return null;
-    }
-  }
-
-  private extractErrorMessage(payload: unknown): string | null {
-    if (typeof payload === 'string') {
-      return payload.trim() || null;
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
-
-    const record = payload as Record<string, unknown>;
-    const message = record.message;
-    if (typeof message === 'string' && message.trim()) {
-      return message;
-    }
-
-    if (Array.isArray(message) && message.length > 0) {
-      return message.map((item) => this.stringifyUnknown(item)).join(', ');
-    }
-
-    const error = record.error;
-    if (typeof error === 'string' && error.trim()) {
-      return error;
-    }
-
-    if (error && typeof error === 'object') {
-      const nested = this.extractErrorMessage(error);
-      if (nested) {
-        return nested;
-      }
-    }
-
-    const data = record.data;
-    if (data && typeof data === 'object') {
-      const nested = this.extractErrorMessage(data);
-      if (nested) {
-        return nested;
-      }
-    }
-
-    return null;
-  }
-
-  private extractErrorCode(payload: unknown): number | null {
-    if (!payload || typeof payload !== 'object') {
-      return null;
-    }
-
-    const record = payload as Record<string, unknown>;
-    const code = Number.parseInt(String(record.code ?? ''), 10);
-    if (Number.isFinite(code)) {
-      return code;
-    }
-
-    const nestedCandidates = [record.error, record.data];
-    for (const nested of nestedCandidates) {
-      const nestedCode = this.extractErrorCode(nested);
-      if (nestedCode !== null) {
-        return nestedCode;
-      }
-    }
-
-    return null;
-  }
-
-  private parsePositiveInt(rawValue: string | undefined, fallback: number): number {
-    const parsed = Number.parseInt(rawValue ?? '', 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return fallback;
-    }
-    return parsed;
-  }
-
-  private buildModelPathCandidates(
-    primaryPath: string | undefined,
-    fallbackPaths: string | undefined,
-  ): string[] {
-    const envCandidates = [primaryPath, ...(fallbackPaths?.split(',') ?? [])];
-    const uniqueCandidates: string[] = [];
-
-    for (const candidate of envCandidates.map((value) => this.normalizeModelPathCandidate(value))) {
-      if (!candidate) {
-        continue;
-      }
-
-      if (!uniqueCandidates.includes(candidate)) {
-        uniqueCandidates.push(candidate);
-      }
-    }
-
-    return uniqueCandidates;
-  }
-
-  private normalizeModelPathCandidate(value: string | undefined): string | null {
-    if (!value) {
-      return null;
-    }
-
-    let normalized = value.trim();
-    if (!normalized) {
-      return null;
-    }
-
-    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-      try {
-        normalized = new URL(normalized).pathname;
-      } catch {
-        return normalized;
-      }
-    }
-
-    normalized = normalized
-      .replace(/^\/api\/v\d+\//, '/')
-      .replace(/^api\/v\d+\//, '')
-      .replace(/^\/+/, '');
-
-    return normalized || null;
-  }
-
   private normalizeImageSize(value: string): string {
     const normalized = value.trim().replace(/[xX]/g, '*');
     return normalized || '1024*1536';
-  }
-
-  private isModelMissingError(error: unknown): boolean {
-    const message = this.extractErrorText(error).toLowerCase();
-    return (
-      message.includes('product not found') ||
-      message.includes('model not found') ||
-      message.includes('[code 1405]') ||
-      message.includes('code 1405')
-    );
-  }
-
-  private isInputImageFetchError(error: unknown): boolean {
-    const message = this.extractErrorText(error).toLowerCase();
-    return (
-      message.includes('cannot fetch content from the provided url') ||
-      message.includes('url is valid and accessible')
-    );
-  }
-
-  private extractErrorText(error: unknown): string {
-    if (error instanceof ServiceUnavailableException) {
-      const response = error.getResponse();
-      if (typeof response === 'string') {
-        return response;
-      }
-
-      if (response && typeof response === 'object') {
-        const responseMessage = (response as Record<string, unknown>).message;
-        if (typeof responseMessage === 'string') {
-          return responseMessage;
-        }
-
-        if (Array.isArray(responseMessage) && responseMessage.length > 0) {
-          return responseMessage.map((item) => this.stringifyUnknown(item)).join(', ');
-        }
-      }
-    }
-
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    return this.stringifyUnknown(error);
-  }
-
-  private asRecord(value: unknown): Record<string, unknown> | null {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return null;
-    }
-
-    return value as Record<string, unknown>;
-  }
-
-  private asString(value: unknown): string | null {
-    if (typeof value === 'string' && value.trim()) {
-      return value;
-    }
-
-    return null;
-  }
-
-  private stringifyUnknown(value: unknown): string {
-    if (typeof value === 'string') {
-      return value;
-    }
-
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(resolve, ms);
-    });
   }
 }

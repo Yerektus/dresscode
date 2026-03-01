@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Subscription } from '../entities/subscription.entity';
 import { CreditPurchase } from '../entities/credit-purchase.entity';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -144,7 +144,25 @@ export class SubscriptionService {
     return { received: true };
   }
 
-  private async ensureBillingAccount(userId: string): Promise<Subscription> {
+  async findByUser(userId: string): Promise<Subscription | null> {
+    return this.repo.findOne({ where: { user_id: userId } });
+  }
+
+  async debitCredit(userId: string, manager?: EntityManager): Promise<void> {
+    const qb = (manager ?? this.dataSource.manager)
+      .createQueryBuilder()
+      .update(Subscription)
+      .set({ credits_balance: () => 'credits_balance - 1' })
+      .where('user_id = :userId', { userId })
+      .andWhere('credits_balance >= 1');
+
+    const result = await qb.execute();
+    if (!result.affected) {
+      throw new ForbiddenException('Not enough credits. Buy credits in Billing.');
+    }
+  }
+
+  async ensureBillingAccount(userId: string): Promise<Subscription> {
     let subscription = await this.repo.findOne({ where: { user_id: userId } });
     if (!subscription) {
       subscription = this.repo.create({

@@ -377,9 +377,11 @@ export default function OnboardingScreen() {
   return (
     <ScreenContainer
       leading={
-        <TextLink onPress={() => router.back()} style={styles.backLink}>
-          ← Back
-        </TextLink>
+        router.canGoBack() ? (
+          <TextLink onPress={() => router.back()} style={styles.backLink}>
+            ← Back
+          </TextLink>
+        ) : undefined
       }
       title="Set up your body profile"
       subtitle="We'll use this to generate your personalized mannequin and size recommendations."

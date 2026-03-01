@@ -2,13 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BodyProfile } from '../entities/body-profile.entity';
-import { estimateDataUriBytes, isDataUri } from '../storage/data-uri';
+import { isDataUri } from '../storage/data-uri';
 import { StorageService } from '../storage/storage.service';
 import { CreateBodyProfileDto } from './dto/create-body-profile.dto';
+import { assertLegacyDataUriSize, parsePositiveInt } from '../common/image-input.utils';
 
 @Injectable()
 export class BodyProfileService {
-  private readonly legacyDataUriMaxBytes = this.parsePositiveInt(
+  private readonly legacyDataUriMaxBytes = parsePositiveInt(
     process.env.LEGACY_DATA_URI_MAX_BYTES,
     6 * 1024 * 1024,
   );
@@ -18,6 +19,10 @@ export class BodyProfileService {
     private readonly repo: Repository<BodyProfile>,
     private readonly storageService: StorageService,
   ) {}
+
+  async findEntityByUser(userId: string): Promise<BodyProfile | null> {
+    return this.repo.findOne({ where: { user_id: userId } });
+  }
 
   async findByUser(userId: string) {
     const profile = await this.repo.findOne({ where: { user_id: userId } });
@@ -78,7 +83,7 @@ export class BodyProfileService {
     }
 
     if (isDataUri(trimmed)) {
-      this.assertLegacyDataUriSize(trimmed, 'face_image');
+      assertLegacyDataUriSize(trimmed, 'face_image', this.legacyDataUriMaxBytes);
       return trimmed;
     }
 
@@ -92,22 +97,5 @@ export class BodyProfileService {
     }
 
     throw new BadRequestException('face_image must be a valid HTTPS URL or a Data URI');
-  }
-
-  private assertLegacyDataUriSize(value: string, fieldName: string) {
-    const bytes = estimateDataUriBytes(value);
-    if (bytes === null) {
-      throw new BadRequestException(`${fieldName} must be a valid base64 Data URI`);
-    }
-    if (bytes > this.legacyDataUriMaxBytes) {
-      throw new BadRequestException(
-        `${fieldName} exceeds legacy Data URI size limit (${this.legacyDataUriMaxBytes} bytes)`,
-      );
-    }
-  }
-
-  private parsePositiveInt(raw: string | undefined, fallback: number): number {
-    const parsed = Number.parseInt(raw ?? '', 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   }
 }

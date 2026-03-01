@@ -122,6 +122,28 @@ export class StorageService {
     };
   }
 
+  async getObjectAsDataUri(assetKey: string): Promise<string> {
+    const normalized = this.validateAssetKey(assetKey);
+    this.assertReady();
+    const client = this.client as { send(cmd: unknown): Promise<{ Body?: { transformToByteArray(): Promise<Uint8Array>; ContentType?: string } & Record<string, unknown> }> };
+    const getObjectCommandCtor = this.getObjectCommandCtor;
+    if (!client || !getObjectCommandCtor) {
+      throw new ServiceUnavailableException('S3 SDK packages are not installed. Run npm install.');
+    }
+
+    const command = new getObjectCommandCtor({ Bucket: this.bucket, Key: normalized });
+    const response = await client.send(command);
+    const body = response?.Body;
+    if (!body || typeof (body as { transformToByteArray?: unknown }).transformToByteArray !== 'function') {
+      throw new ServiceUnavailableException('Failed to read object from storage');
+    }
+
+    const bytes = await (body as { transformToByteArray(): Promise<Uint8Array> }).transformToByteArray();
+    const contentType = (body as { ContentType?: string }).ContentType ?? 'image/jpeg';
+    const base64 = Buffer.from(bytes).toString('base64');
+    return `data:${contentType};base64,${base64}`;
+  }
+
   async createSignedReadUrl(assetKey: string): Promise<string> {
     const normalized = this.validateAssetKey(assetKey);
     this.assertReady();
